@@ -86,16 +86,18 @@ private:
     nvinfer1::ICudaEngine*       engine_  = nullptr;
     nvinfer1::IExecutionContext*  context_ = nullptr;
 
-    // ---- Tensor名称（TensorRT 10 name-based API）----
+    // ---- Tensor 名称（TensorRT 10 name-based API）----
     char input_name_[kTensorNameMaxLen] = {0};
-    char output_name_[kTensorNameMaxLen] = {0};
+    std::vector<std::string> output_names_;
+    int primary_output_index_ = -1;  // 用于当前 YOLO 后处理的主输出索引
 
     // ---- GPU 缓冲区 ----
-    float* dev_input_  = nullptr;   // 网络输入 [1, 3, input_h_, input_w_]
-    float* dev_output_ = nullptr;   // 网络输出 [1, 4+num_classes_, num_anchors_]
+    float* dev_input_ = nullptr;              // 网络输入 [1, 3, input_h_, input_w_]
+    std::vector<void*> dev_outputs_;          // 所有输出 tensor 的 GPU 缓冲
+    std::vector<size_t> output_bytes_;        // 每个输出 tensor 的字节数
 
     // ---- CPU 缓冲区 ----
-    float* host_output_ = nullptr;  // 输出拷贝到 CPU 进行后处理
+    float* host_output_ = nullptr;  // 主输出拷贝到 CPU 进行后处理
 
     // ---- 网络参数 ----
     int input_w_      = 0;          // 网络输入宽度（如 640）
@@ -104,6 +106,7 @@ private:
     int num_anchors_   = 0;          // 候选框数量（如 8400）
     int output_fields_ = 0;          // 每个 anchor 的字段数 (4 + num_classes_)
     int output_size_   = 0;          // 输出总 float 数
+    bool output_anchor_major_ = false; // true: [1, N, C], false: [1, C, N]
 
     // ---- letterbox 缩放参数（每次 detect 重新计算）----
     float scale_ = 1.0f;

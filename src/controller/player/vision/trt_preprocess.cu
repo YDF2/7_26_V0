@@ -59,6 +59,8 @@ __global__ void letterbox_preprocess_kernel(
         // 边界 clamp
         if (x1 >= src_w) x1 = src_w - 1;
         if (y1 >= src_h) y1 = src_h - 1;
+        if (x0 >= src_w) x0 = src_w - 1;
+        if (y0 >= src_h) y0 = src_h - 1;
         if (x0 < 0) x0 = 0;
         if (y0 < 0) y0 = 0;
 
@@ -99,7 +101,7 @@ __global__ void letterbox_preprocess_kernel(
  * @brief Letterbox 预处理入口函数（供 C++ 调用）
  */
 extern "C"
-void cudaLetterboxPreprocess(
+cudaError_t cudaLetterboxPreprocess(
     const unsigned char* dev_bgr_src,
     float* dev_chw_dst,
     int src_w, int src_h,
@@ -115,4 +117,6 @@ void cudaLetterboxPreprocess(
         dev_bgr_src, dev_chw_dst,
         src_w, src_h, dst_w, dst_h,
         scale, pad_x, pad_y);
+
+    return cudaGetLastError();
 }
