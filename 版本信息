@@ -1,0 +1,14 @@
+V2 by JWJ
+
+修改进入踢球条件，目前速度较慢，但可使球滚动较远
+修改踢球动作，防止挂在草地，但可使球滚动较远
+使用最新权重文件24_V1
+
+V2.1 by JWJ
+修改turn body策略,enanble to quickly turn around the ball.
+Change the conditions when entering kick_ball,which improves the speed of kicking.
+Change the walking parameters,which makes it walk more stablely,the freq and rise has the most influence.
+
+He won the competition with Tsinghua in his virgin battle,which uses this version.
+He is our proud,which built together with our comrade from 2019 to 17th,May,2024.
+

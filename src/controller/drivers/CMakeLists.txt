@@ -1,0 +1,2 @@
+add_subdirectory(dynamixel)
+add_subdirectory(gpio)
