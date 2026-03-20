@@ -10,6 +10,9 @@ public:
     Debuger();
     QComboBox *pBox;
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 public slots:
     void procPlayerChanged(int index);
     void procClosed();
@@ -20,10 +23,16 @@ public slots:
     void procBtnAD();
     void procBtnAM();
     void procBtnWR();
+    void procBtnIPE();
     void procBtnJR();
 private:
+    void cacheBaseFonts();
+    void applyScale(double scale);
+
     int opened_debuger_count;
     int current_player;
+    QSize base_window_size;
+    QHash<QWidget*, QFont> base_fonts;
 };
 
 #endif

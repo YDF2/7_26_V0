@@ -22,7 +22,7 @@ add_subdirectory(action_monitor)
 add_subdirectory(walk_remote)
 add_subdirectory(joint_revise)
 add_subdirectory(team_monitor)
-
+add_subdirectory(init_pos_editor)
 
 add_executable(${TARGET_NAME}
                 main.cpp
@@ -39,6 +39,7 @@ target_link_libraries(${TARGET_NAME}
                 joint_revise
                 team_monitor
                 tcp_client
+		init_pos_editor
                 glut
                 GLU
                 GL
