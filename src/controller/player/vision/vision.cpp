@@ -3,20 +3,9 @@
 #include <cuda_runtime.h>
 #include "server/server.hpp"
 #include <algorithm>
-#include <cstdio>
-#include <cassert>
-
-// check_error 兼容函数（替代 darknet/cuda.h 中的版本）
-static inline void check_error(cudaError_t status)
-{
-    if (status != cudaSuccess)
-    {
-        fprintf(stderr, "CUDA Error: %s\n", cudaGetErrorString(status));
-        assert(0);
-    }
-}
 #include "core/worldmodel.hpp"
 #include "imageproc/imageproc.hpp"
+#include "cuda_utils.hpp"
 #include <fstream>
 
 using namespace std;
@@ -26,12 +15,18 @@ using namespace Eigen;
 using namespace robot;
 using namespace imgproc;
 
+static inline void check_error(cudaError_t status)
+{
+    check_error_cuda(status);
+}
+
 Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
 {
     p_count_ = 0;
     cant_see_ball_count_ = 0;
     can_see_post_count_ = 0;
     is_busy_ = false;
+    zed_cam_param_applied_ = false;
     w_ = CONF->get_config_value<int>("image.width");
     h_ = CONF->get_config_value<int>("image.height");
     img_sd_type_ = IMAGE_SEND_RESULT;
@@ -180,6 +175,9 @@ void Vision::run()
         frame_mtx_.unlock();
 
         // double t1 = clock();
+        const int expected_yuyv = camera_w_ * camera_h_ * 2;
+        const int expected_bgr = camera_w_ * camera_h_ * 3;
+
         if (use_mv_)
         {
             cudaBayer2BGR(dev_src_, dev_bgr_, camera_w_, camera_h_, camera_infos_["saturation"].value,
@@ -187,23 +185,56 @@ void Vision::run()
         }
         else
         {
-            cudaYUYV2BGR(dev_src_, dev_bgr_, camera_w_, camera_h_);
+            if (src_size_ == expected_yuyv)
+            {
+                cudaYUYV2BGR(dev_src_, dev_bgr_, camera_w_, camera_h_);
+            }
+            else if (src_size_ == expected_bgr)
+            {
+                // ZED-mini backend: buffer already contains BGR uint8 HWC packed.
+                err = cudaMemcpy(dev_bgr_, dev_src_, bgr_size_, cudaMemcpyDeviceToDevice);
+                check_error(err);
+            }
+            else
+            {
+                LOG(LOG_ERROR) << "Vision: unknown camera input size: src_size=" << src_size_
+                                << ", expected_yuyv=" << expected_yuyv << ", expected_bgr=" << expected_bgr << endll;
+                is_busy_ = false;
+                return;
+            }
         }
         cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, w_, h_);
-        if (use_mv_)
+        if (use_mv_ || src_size_ == expected_bgr)
+        {
+            // Bayer and ZED BGR: apply undistortion mapping.
             cudaUndistored(dev_ori_, dev_undis_, pCamKData, pDistortData, pInvNewCamKData, pMapxData, pMapyData, w_, h_, 3);
+        }
         else
+        {
+            // V4L2 YUYV: keep legacy behavior (no undistort).
             cudaMemcpy(dev_undis_, dev_ori_, ori_size_, cudaMemcpyDeviceToDevice);
+        }
         // cudaBGR2YUV422(dev_undis_, dev_yuyv_, w_, h_);
+        const int in_w = detector_.input_w();
+        const int in_h = detector_.input_h();
+        cudaResizePacked(dev_undis_, w_, h_, dev_sized_, in_w, in_h);
+        cudaBGR2RGBfp(dev_sized_, dev_rgbfp_, in_w, in_h); // 转为浮点型供神经网络使用
 
-        // ---- TensorRT 检测（一行替换全部 Darknet 推理逻辑）----
-        detector_.detect(dev_undis_, w_, h_,
-                         ball_dets_, post_dets_,
-                         ball_id_, post_id_,
-                         ball_prob_, post_prob_,
-                         min_ball_w_, min_ball_h_,
-                         min_post_w_, min_post_h_,
-                         d_w_h_);
+        if (!detector_.detect(dev_rgbfp_,
+                               w_, h_,
+                               ball_dets_,
+                               post_dets_,
+                               ball_prob_,
+                               post_prob_,
+                               min_ball_w_,
+                               min_ball_h_,
+                               min_post_w_,
+                               min_post_h_,
+                               d_w_h_))
+        {
+            ball_dets_.clear();
+            post_dets_.clear();
+        }
         // double t2 = clock();
         // LOG(LOG_INFO)<<(t2-t1)/CLOCKS_PER_SEC<<endll;
 
@@ -402,6 +433,58 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             err = cudaMalloc((void **)&dev_bgr_, bgr_size_);
             check_error(err);
         }
+
+        if (!zed_cam_param_applied_ && sptr->use_zed())
+        {
+            camera_param zed_param;
+            if (sptr->get_zed_left_camera_param(zed_param))
+            {
+                params_ = zed_param;
+
+                D.at<float>(0, 0) = params_.k1;
+                D.at<float>(1, 0) = params_.k2;
+                D.at<float>(2, 0) = params_.p1;
+                D.at<float>(3, 0) = params_.p2;
+
+                camK.at<float>(0, 2) = params_.cx;
+                camK.at<float>(1, 2) = params_.cy;
+                camK.at<float>(0, 0) = params_.fx;
+                camK.at<float>(1, 1) = params_.fy;
+                camK.at<float>(2, 2) = 1.0f;
+                newCamK = camK.clone();
+                invCamK = (newCamK * R.t()).inv(cv::DECOMP_LU);
+
+                if (pCamKData && pInvNewCamKData && pDistortData && pMapxData && pMapyData)
+                {
+                    cudaError_t err;
+                    err = cudaMemcpy(pCamKData, camK.data, 9 * sizeof(float), cudaMemcpyHostToDevice);
+                    check_error(err);
+                    err = cudaMemcpy(pInvNewCamKData, invCamK.data, 9 * sizeof(float), cudaMemcpyHostToDevice);
+                    check_error(err);
+                    err = cudaMemcpy(pDistortData, D.data, 4 * sizeof(float), cudaMemcpyHostToDevice);
+                    check_error(err);
+                    err = cudaMemcpy(pMapxData, mapx.data, h_ * w_ * sizeof(float), cudaMemcpyHostToDevice);
+                    check_error(err);
+                    err = cudaMemcpy(pMapyData, mapy.data, h_ * w_ * sizeof(float), cudaMemcpyHostToDevice);
+                    check_error(err);
+                }
+
+                zed_cam_param_applied_ = true;
+                LOG(LOG_INFO) << "Vision: applied ZED LEFT calibration fx=" << params_.fx
+                              << " fy=" << params_.fy
+                              << " cx=" << params_.cx
+                              << " cy=" << params_.cy
+                              << " k1=" << params_.k1
+                              << " k2=" << params_.k2
+                              << " p1=" << params_.p1
+                              << " p2=" << params_.p2 << endll;
+            }
+            else
+            {
+                LOG(LOG_WARN) << "Vision: ZED backend active but calibration not available, keep config camera params." << endll;
+            }
+        }
+
         frame_mtx_.lock();
         memcpy(camera_src_, sptr->buffer(), src_size_);
         if (OPTS->use_robot())
@@ -453,16 +536,19 @@ void Vision::updata(const pub_ptr &pub, const int &type)
 
 bool Vision::start()
 {
-    // ---- 加载 TensorRT 引擎（替换原 Darknet 加载）----
     std::string engine_path = CONF->get_config_value<string>("net_engine_file");
-    if (!detector_.load(engine_path, 2))  // 2 个类别: post=0, ball=1
+    if (!detector_.load(engine_path, ball_id_, post_id_))
     {
-        LOG(LOG_ERROR) << "Failed to load TensorRT engine: " << engine_path << endll;
+        LOG(LOG_ERROR) << "Vision: failed to load TensorRT engine: " << engine_path << endll;
         return false;
     }
 
     ori_size_ = w_ * h_ * 3;
     yuyv_size_ = w_ * h_ * 2;
+    const int in_w = detector_.input_w();
+    const int in_h = detector_.input_h();
+    sized_size_ = in_w * in_h * 3;
+    rgbf_size_ = in_w * in_h * 3 * sizeof(float);
 
     cudaError_t err;
     err = cudaMalloc((void **)&dev_ori_, ori_size_);
@@ -470,6 +556,10 @@ bool Vision::start()
     err = cudaMalloc((void **)&dev_undis_, ori_size_);
     check_error(err);
     err = cudaMalloc((void **)&dev_yuyv_, yuyv_size_);
+    check_error(err);
+    err = cudaMalloc((void **)&dev_sized_, sized_size_);
+    check_error(err);
+    err = cudaMalloc((void **)&dev_rgbfp_, rgbf_size_);
     check_error(err);
 
     err = cudaMalloc(&pCamKData, 9 * sizeof(float));
@@ -511,6 +601,8 @@ void Vision::stop()
         cudaFree(dev_yuyv_);
         cudaFree(dev_src_);
         cudaFree(dev_bgr_);
+        cudaFree(dev_rgbfp_);
+        cudaFree(dev_sized_);
 
         cudaFree(pCamKData);
         cudaFree(pInvNewCamKData);

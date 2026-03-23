@@ -9,6 +9,10 @@
 #include "model.hpp"
 #include "configuration.hpp"
 
+#ifdef USE_ZED_BACKEND
+#include <sl/Camera.hpp>
+#endif
+
 class Camera: public Sensor
 {
 public:
@@ -24,7 +28,7 @@ public:
     void set_camera_info(const camera_info &para);
     inline unsigned char *buffer() const
     {
-        if (use_mv_)
+        if (use_mv_ || use_zed_)
         {
             return buffer_;
         }
@@ -49,11 +53,22 @@ public:
         return use_mv_;
     }
 
+    inline bool use_zed() const
+    {
+        return use_zed_;
+    }
+
+    bool get_zed_left_camera_param(camera_param &para) const;
+
     inline int camera_size() const
     {
         if (use_mv_)
         {
             return w_ * h_;
+        }
+        else if (use_zed_)
+        {
+            return w_ * h_ * 3;
         }
         else
         {
@@ -72,6 +87,7 @@ private:
         int lagtimems;
     };
     bool use_mv_;
+    bool use_zed_;
     std::thread td_;
     VideoBuffer *buffers_;
     v4l2_buffer buf_;
@@ -80,6 +96,19 @@ private:
     int w_;
     int h_;
     unsigned char *buffer_;
+
+#ifdef USE_ZED_BACKEND
+    sl::Camera zed_;
+    sl::Mat zed_image_;
+    camera_param zed_left_params_;
+    bool zed_calib_valid_;
+    float zed_left_hfov_;
+    float zed_left_vfov_;
+    float zed_left_dfov_;
+    float zed_stereo_tx_;
+    int zed_calib_w_;
+    int zed_calib_h_;
+#endif
     tSdkCameraCapbility     tCapability_;
     tSdkFrameHead           sFrameInfo_;
     std::map<std::string, camera_info> camera_infos_;

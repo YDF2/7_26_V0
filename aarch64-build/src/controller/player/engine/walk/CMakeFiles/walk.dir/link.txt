@@ -1,0 +1,2 @@
+/usr/bin/ar qc libwalk.a CMakeFiles/walk.dir/walk_engine.cpp.o CMakeFiles/walk.dir/CubicSpline.cpp.o CMakeFiles/walk.dir/SmoothSpline.cpp.o CMakeFiles/walk.dir/HumanoidModel.cpp.o CMakeFiles/walk.dir/IKWalk.cpp.o CMakeFiles/walk.dir/LegIK.cpp.o CMakeFiles/walk.dir/Polynom.cpp.o CMakeFiles/walk.dir/Spline.cpp.o
+/usr/bin/ranlib libwalk.a

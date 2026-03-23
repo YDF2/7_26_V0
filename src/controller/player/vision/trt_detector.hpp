@@ -3,150 +3,100 @@
 
 #include <string>
 #include <vector>
-#include <NvInfer.h>
 #include <cuda_runtime.h>
-#include "model.hpp"  // object_det 结构体
+#include <cuda_fp16.h>
 
-/**
- * @brief TensorRT YOLOv8 检测器封装类
- *
- * 职责：
- *   1. 加载 TensorRT .engine 序列化引擎
- *   2. 执行 letterbox 预处理（GPU CUDA kernel）
- *   3. TensorRT GPU 推理
- *   4. YOLOv8 后处理（坐标解码 + 阈值过滤 + NMS）
- *   5. 输出与原 Darknet 接口完全兼容的 object_det
- *
- * 设计原则：
- *   - 与 Vision 类解耦，可独立测试
- *   - 所有 GPU 缓冲由本类管理，Vision 无需关心
- *   - detect() 接口对外行为与原 Darknet 流程等效
- */
+#include <NvInfer.h>
+
+#include "model.hpp"
+
 class TRTDetector
 {
 public:
     TRTDetector();
     ~TRTDetector();
 
-    /**
-     * @brief 加载 TensorRT 引擎文件
-     * @param engine_path .engine 文件路径
-     * @param num_classes 类别数（本项目固定为 2）
-     * @return 是否加载成功
-     */
-    bool load(const std::string& engine_path, int num_classes);
-
-    /**
-     * @brief 执行检测（预处理 + 推理 + 后处理）
-     *
-     * 替代原先的:
-     *   cudaResizePacked() + cudaBGR2RGBfp() + network_predict() +
-     *   get_network_boxes() + do_nms_sort() + 解析循环 + free_detections()
-     *
-     * @param dev_bgr     GPU 上的 BGR uint8 图像（dev_undis_）
-     * @param img_w       原图宽度（w_，通常 640）
-     * @param img_h       原图高度（h_，通常 480）
-     * @param ball_dets   [输出] 足球检测结果
-     * @param post_dets   [输出] 门柱检测结果
-     * @param ball_id     足球类别 ID（1）
-     * @param post_id     门柱类别 ID（0）
-     * @param ball_thresh 足球置信度阈值
-     * @param post_thresh 门柱置信度阈值
-     * @param min_ball_w  足球最小宽度像素
-     * @param min_ball_h  足球最小高度像素
-     * @param min_post_w  门柱最小宽度像素
-     * @param min_post_h  门柱最小高度像素
-     * @param d_w_h       足球宽高比容差（|w/h - 1.0| < d_w_h）
-     */
-    void detect(unsigned char* dev_bgr, int img_w, int img_h,
-                std::vector<object_det>& ball_dets,
-                std::vector<object_det>& post_dets,
-                int ball_id, int post_id,
-                float ball_thresh, float post_thresh,
-                int min_ball_w, int min_ball_h,
-                int min_post_w, int min_post_h,
-                float d_w_h);
-
-    /**
-     * @brief 释放所有 TensorRT 和 CUDA 资源
-     * 替代原先的 free_network(net_) + cudaFree(dev_sized_) + cudaFree(dev_rgbfp_)
-     */
+    bool load(const std::string &engine_path, int ball_id, int post_id);
     void release();
 
-    /** @brief 获取网络输入宽度（用于日志/调试） */
-    int net_w() const { return input_w_; }
-    /** @brief 获取网络输入高度 */
-    int net_h() const { return input_h_; }
+    int input_w() const { return input_w_; }
+    int input_h() const { return input_h_; }
+
+    /**
+     * @brief TensorRT 推理并填充目标检测结果（object_det）。
+     *
+     * 注意：
+     * - 本项目的 Vision 侧预处理把图像拉伸到 detector 的输入分辨率，并产出 dev_rgbfp（RGB float CHW）。
+     * - detect() 只负责：enqueueV3 -> 读取输出 -> YOLOv8 输出解析 -> 类别阈值/尺寸过滤 -> NMS -> 写回 ball_dets/post_dets
+     */
+    bool detect(float *dev_rgbfp,
+                 int orig_w, int orig_h,
+                 std::vector<object_det> &ball_dets,
+                 std::vector<object_det> &post_dets,
+                 float ball_thresh,
+                 float post_thresh,
+                 int min_ball_w,
+                 int min_ball_h,
+                 int min_post_w,
+                 int min_post_h,
+                 float d_w_h,
+                 float nms_thresh = 0.45f);
 
 private:
-    static constexpr int kTensorNameMaxLen = 128;
+    bool parseOutputLayout(int num_dims,
+                            const nvinfer1::Dims &dims,
+                            int &output_fields,
+                            int &num_anchors,
+                            bool &fields_first) const;
 
-    // ---- TensorRT 核心对象 ----
-    nvinfer1::IRuntime*          runtime_ = nullptr;
-    nvinfer1::ICudaEngine*       engine_  = nullptr;
-    nvinfer1::IExecutionContext*  context_ = nullptr;
+    float readOutputValue(const std::vector<float> &host_out,
+                          int anchor_idx,
+                          int field_idx,
+                          int output_fields,
+                          int num_anchors,
+                          bool fields_first) const;
 
-    // ---- Tensor 名称（TensorRT 10 name-based API）----
-    char input_name_[kTensorNameMaxLen] = {0};
-    std::vector<std::string> output_names_;
-    int primary_output_index_ = -1;  // 用于当前 YOLO 后处理的主输出索引
+    static float iou(const object_det &a, const object_det &b);
+    static void nms(std::vector<object_det> &dets, float nms_thresh);
 
-    // ---- GPU 缓冲区 ----
-    float* dev_input_ = nullptr;              // 网络输入 [1, 3, input_h_, input_w_]
-    std::vector<void*> dev_outputs_;          // 所有输出 tensor 的 GPU 缓冲
-    std::vector<size_t> output_bytes_;        // 每个输出 tensor 的字节数
+private:
+    class TRTLogger : public nvinfer1::ILogger
+    {
+    public:
+        void log(Severity severity, const char *msg) noexcept override
+        {
+            (void)severity;
+            (void)msg;
+        }
+    };
 
-    // ---- CPU 缓冲区 ----
-    float* host_output_ = nullptr;  // 主输出拷贝到 CPU 进行后处理
+    TRTLogger logger_;
+    nvinfer1::IRuntime *runtime_;
+    nvinfer1::ICudaEngine *engine_;
+    nvinfer1::IExecutionContext *context_;
 
-    // ---- 网络参数 ----
-    int input_w_      = 0;          // 网络输入宽度（如 640）
-    int input_h_      = 0;          // 网络输入高度（如 640）
-    int num_classes_   = 0;          // 类别数（2）
-    int num_anchors_   = 0;          // 候选框数量（如 8400）
-    int output_fields_ = 0;          // 每个 anchor 的字段数 (4 + num_classes_)
-    int output_size_   = 0;          // 输出总 float 数
-    bool output_anchor_major_ = false; // true: [1, N, C], false: [1, C, N]
+    std::string input_name_;
+    std::string output_name_;
 
-    // ---- letterbox 缩放参数（每次 detect 重新计算）----
-    float scale_ = 1.0f;
-    int   pad_x_ = 0;
-    int   pad_y_ = 0;
+    int input_w_;
+    int input_h_;
 
-    // ---- CUDA stream ----
-    cudaStream_t stream_ = nullptr;
+    nvinfer1::DataType output_dtype_;
+    nvinfer1::DataType input_dtype_;
+    size_t output_numel_;
+    size_t output_elem_bytes_;
 
-    // ---- 内部方法 ----
+    void *dev_output_;
+    cudaStream_t stream_;
 
-    /**
-     * @brief Letterbox 预处理（GPU 端）
-     * BGR uint8 HWC → RGB float32 CHW，保持宽高比，灰色填充
-     */
-    void preprocess(unsigned char* dev_bgr, int img_w, int img_h);
+    // class ids mapping
+    int ball_id_;
+    int post_id_;
 
-    /**
-     * @brief YOLOv8 后处理
-     * 解析输出张量 → 阈值过滤 → 坐标还原 → 尺寸过滤 → NMS
-     */
-    void postprocess(int img_w, int img_h,
-                     std::vector<object_det>& ball_dets,
-                     std::vector<object_det>& post_dets,
-                     int ball_id, int post_id,
-                     float ball_thresh, float post_thresh,
-                     int min_ball_w, int min_ball_h,
-                     int min_post_w, int min_post_h,
-                     float d_w_h);
-
-    /**
-     * @brief CPU NMS（Non-Maximum Suppression）
-     * 对已经按 prob 降序排列的 dets 做 IoU 抑制
-     */
-    static void nms(std::vector<object_det>& dets, float nms_thresh);
-
-    /**
-     * @brief 计算两个 object_det 的 IoU
-     */
-    static float iou(const object_det& a, const object_det& b);
+    // Host output cache (always store as float for simpler parsing)
+    std::vector<float> host_output_;
+    std::vector<__half> host_output_half_;
 };
 
-#endif // __TRT_DETECTOR_HPP
+#endif
+

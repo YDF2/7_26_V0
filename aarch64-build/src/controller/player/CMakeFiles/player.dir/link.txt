@@ -1,0 +1,2 @@
+/usr/bin/ar qc libplayer.a CMakeFiles/player.dir/play_with_remote.cpp.o CMakeFiles/player.dir/play_without_gc.cpp.o CMakeFiles/player.dir/play_with_gc.cpp.o CMakeFiles/player.dir/player.cpp.o
+/usr/bin/ranlib libplayer.a

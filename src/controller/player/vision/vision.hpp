@@ -14,13 +14,13 @@
 #include "options/options.hpp"
 #include "common.hpp"
 #include "singleton.hpp"
-#include "trt_detector.hpp"
 #include "tcp.hpp"
 #include "common.hpp"
 #include "math/math.hpp"
 #include "sensor/imu.hpp"
 #include "sensor/motor.hpp"
 #include "localization/localization.h"
+#include "trt_detector.hpp"
 
 class Vision: public Timer, public Subscriber, public Singleton<Vision>
 {
@@ -51,11 +51,11 @@ private:
 private:
     void run();
     void send_image(const cv::Mat &src);
-
+    
     std::queue<Imu::imu_data> imu_datas_;
     std::queue< std::vector<double> > foot_degs_, head_degs_;
     std::queue<int> spfs_;
-
+    
     float head_yaw_, head_pitch_;
 
     Eigen::Vector2d odometry_offset_;
@@ -68,8 +68,8 @@ private:
     std::map<std::string, camera_info> camera_infos_;
     camera_param params_;
     robot_math::TransformMatrix camera_matrix_;
-
-    std::vector<object_det> ball_dets_, post_dets_;
+    
+    std::vector<object_det> ball_dets_, post_dets_; 
     float d_w_h_;
     int ball_id_, post_id_;
     float ball_prob_, post_prob_;
@@ -80,6 +80,7 @@ private:
     int can_see_post_count_;
 
     bool is_busy_;
+    bool zed_cam_param_applied_;
     image_send_type img_sd_type_;
 
     TRTDetector detector_;
@@ -87,13 +88,17 @@ private:
     unsigned char *dev_src_;
     unsigned char *dev_bgr_;
     unsigned char *dev_ori_;
+    unsigned char *dev_sized_;
     unsigned char *dev_undis_;
     unsigned char *dev_yuyv_;
     unsigned char *camera_src_;
+    float *dev_rgbfp_;
     int src_size_;
     int bgr_size_;
     int ori_size_;
     int yuyv_size_;
+    int sized_size_;
+    int rgbf_size_;
 
     cv::Mat camK;
 	cv::Mat newCamK;
@@ -109,7 +114,7 @@ private:
 	float *pDistortData;
 	float *pMapxData;
 	float *pMapyData;
-
+    
     mutable std::mutex frame_mtx_, imu_mtx_;
 };
 

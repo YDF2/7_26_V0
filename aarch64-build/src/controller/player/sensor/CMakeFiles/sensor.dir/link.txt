@@ -1,0 +1,2 @@
+/usr/bin/ar qc libsensor.a CMakeFiles/sensor.dir/button.cpp.o CMakeFiles/sensor.dir/camera.cpp.o CMakeFiles/sensor.dir/motor.cpp.o CMakeFiles/sensor.dir/imu.cpp.o CMakeFiles/sensor.dir/gamectrl.cpp.o CMakeFiles/sensor.dir/hear.cpp.o CMakeFiles/sensor.dir/hipnuc_dec.c.o CMakeFiles/sensor.dir/serial_port.c.o CMakeFiles/sensor.dir/cmd_read.c.o
+/usr/bin/ranlib libsensor.a

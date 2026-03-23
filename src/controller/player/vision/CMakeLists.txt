@@ -1,8 +1,6 @@
 add_library(vision
         vision.cpp
-        trt_detector.cpp
-        trt_preprocess.cu)
-
+        trt_detector.cpp)
 
 target_link_libraries(vision
         opencv_core
@@ -17,4 +15,3 @@ target_link_libraries(vision
         rt
         stdc++
         cudart)
-
