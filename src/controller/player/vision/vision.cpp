@@ -27,6 +27,7 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     can_see_post_count_ = 0;
     is_busy_ = false;
     zed_cam_param_applied_ = false;
+    use_zed_ = false;
     w_ = CONF->get_config_value<int>("image.width");
     h_ = CONF->get_config_value<int>("image.height");
     img_sd_type_ = IMAGE_SEND_RESULT;
@@ -77,6 +78,9 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     d_w_h_ = 0.3;
     localization_ = false;
     can_see_post_ = false;
+    letterbox_scale_ = 1.0f;
+    letterbox_pad_x_ = 0;
+    letterbox_pad_y_ = 0;
 }
 
 Vision::~Vision()
@@ -204,10 +208,18 @@ void Vision::run()
             }
         }
         cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, w_, h_);
-        if (use_mv_ || src_size_ == expected_bgr)
+        if (use_mv_)
         {
-            // Bayer and ZED BGR: apply undistortion mapping.
-            cudaUndistored(dev_ori_, dev_undis_, pCamKData, pDistortData, pInvNewCamKData, pMapxData, pMapyData, w_, h_, 3);
+            // MV Bayer path keeps legacy undistortion behavior.
+            imgproc::cudaUndistored(dev_ori_, dev_undis_, pCamKData, pDistortData, pInvNewCamKData, pMapxData, pMapyData, w_, h_, 3);
+        }
+        else if (use_zed_)
+        {
+            // ZED path: now enable direct undistortion using ZED camera parameters
+            imgproc::cudaUndistort(dev_ori_, dev_undis_, 
+                                   params_.fx, params_.fy, params_.cx, params_.cy,
+                                   params_.k1, params_.k2, 0.0f, params_.p1, params_.p2,
+                                   w_, h_, 3);
         }
         else
         {
@@ -217,7 +229,8 @@ void Vision::run()
         // cudaBGR2YUV422(dev_undis_, dev_yuyv_, w_, h_);
         const int in_w = detector_.input_w();
         const int in_h = detector_.input_h();
-        cudaResizePacked(dev_undis_, w_, h_, dev_sized_, in_w, in_h);
+        cudaResizeLetterbox(dev_undis_, w_, h_, dev_sized_, in_w, in_h,
+                    letterbox_scale_, letterbox_pad_x_, letterbox_pad_y_);
         cudaBGR2RGBfp(dev_sized_, dev_rgbfp_, in_w, in_h); // 转为浮点型供神经网络使用
 
         if (!detector_.detect(dev_rgbfp_,
@@ -230,7 +243,10 @@ void Vision::run()
                                min_ball_h_,
                                min_post_w_,
                                min_post_h_,
-                               d_w_h_))
+                               d_w_h_,
+                               letterbox_scale_,
+                               letterbox_pad_x_,
+                               letterbox_pad_y_))
         {
             ball_dets_.clear();
             post_dets_.clear();
@@ -424,6 +440,7 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             camera_h_ = sptr->camera_h();
             camera_size_ = sptr->camera_size();
             use_mv_ = sptr->use_mv();
+            use_zed_ = sptr->use_zed();
             src_size_ = camera_size_;
             bgr_size_ = camera_w_ * camera_h_ * 3;
             camera_src_ = (unsigned char *)malloc(camera_size_);
@@ -432,6 +449,11 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             check_error(err);
             err = cudaMalloc((void **)&dev_bgr_, bgr_size_);
             check_error(err);
+
+            if (use_zed_)
+            {
+                LOG(LOG_WARN) << "Vision: Stage-A ZED path bypasses undistortion to recover debug image visibility." << endll;
+            }
         }
 
         if (!zed_cam_param_applied_ && sptr->use_zed())

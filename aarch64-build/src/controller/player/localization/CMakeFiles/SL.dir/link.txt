@@ -1,2 +1,0 @@
-/usr/bin/ar qc libSL.a CMakeFiles/SL.dir/localization.cpp.o CMakeFiles/SL.dir/kalman.cpp.o CMakeFiles/SL.dir/soccermap.cpp.o
-/usr/bin/ranlib libSL.a

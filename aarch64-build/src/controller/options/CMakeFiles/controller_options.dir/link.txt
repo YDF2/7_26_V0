@@ -1,2 +1,0 @@
-/usr/bin/ar qc libcontroller_options.a CMakeFiles/controller_options.dir/options.cpp.o
-/usr/bin/ranlib libcontroller_options.a

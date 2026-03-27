@@ -223,6 +223,15 @@ float TRTDetector::readOutputValue(const std::vector<float> &host_out,
     }
 }
 
+float TRTDetector::clampf(float v, float lo, float hi)
+{
+    if (v < lo)
+        return lo;
+    if (v > hi)
+        return hi;
+    return v;
+}
+
 float TRTDetector::iou(const object_det &a, const object_det &b)
 {
     const int x1 = std::max(a.x, b.x);
@@ -284,9 +293,16 @@ bool TRTDetector::detect(float *dev_rgbfp,
                           int min_post_w,
                           int min_post_h,
                           float d_w_h,
+                          float letterbox_scale,
+                          int letterbox_pad_x,
+                          int letterbox_pad_y,
                           float nms_thresh)
 {
     if (!engine_ || !context_ || !dev_output_ || !dev_rgbfp)
+        return false;
+    if (orig_w <= 1 || orig_h <= 1)
+        return false;
+    if (letterbox_scale <= 0.0f)
         return false;
 
     // 1) enqueue
@@ -331,6 +347,9 @@ bool TRTDetector::detect(float *dev_rgbfp,
     if (!parseOutputLayout(out_dims.nbDims, out_dims, output_fields, num_anchors, fields_first))
         return false;
 
+    if ((4 + std::max(ball_id_, post_id_)) >= output_fields)
+        return false;
+
     // 3) heuristic: detect if coords are normalized
     float max_abs = 0.0f;
     const int sample = std::min(num_anchors, 50);
@@ -347,9 +366,6 @@ bool TRTDetector::detect(float *dev_rgbfp,
     // 4) decode anchors
     ball_dets.clear();
     post_dets.clear();
-
-    const float scale_x = static_cast<float>(orig_w) / static_cast<float>(input_w_);
-    const float scale_y = static_cast<float>(orig_h) / static_cast<float>(input_h_);
 
     for (int i = 0; i < num_anchors; ++i)
     {
@@ -372,14 +388,26 @@ bool TRTDetector::detect(float *dev_rgbfp,
         // pick class by max prob (matches darknet parsing behavior)
         const bool is_ball = (prob_ball > prob_post);
 
-        // convert from center to left-top in original image pixel space
-        const float real_cx = cx * scale_x;
-        const float real_cy = cy * scale_y;
-        const float real_w = bw * scale_x;
-        const float real_h = bh * scale_y;
+        // Undo letterbox transform: model-space -> original image space.
+        const float model_x1 = cx - bw * 0.5f;
+        const float model_y1 = cy - bh * 0.5f;
+        const float model_x2 = cx + bw * 0.5f;
+        const float model_y2 = cy + bh * 0.5f;
 
-        const float x_left = real_cx - real_w * 0.5f;
-        const float y_top = real_cy - real_h * 0.5f;
+        const float x1 = (model_x1 - static_cast<float>(letterbox_pad_x)) / letterbox_scale;
+        const float y1 = (model_y1 - static_cast<float>(letterbox_pad_y)) / letterbox_scale;
+        const float x2 = (model_x2 - static_cast<float>(letterbox_pad_x)) / letterbox_scale;
+        const float y2 = (model_y2 - static_cast<float>(letterbox_pad_y)) / letterbox_scale;
+
+        const float x1_clamped = clampf(x1, 0.0f, static_cast<float>(orig_w - 1));
+        const float y1_clamped = clampf(y1, 0.0f, static_cast<float>(orig_h - 1));
+        const float x2_clamped = clampf(x2, 0.0f, static_cast<float>(orig_w - 1));
+        const float y2_clamped = clampf(y2, 0.0f, static_cast<float>(orig_h - 1));
+
+        const float real_w = x2_clamped - x1_clamped;
+        const float real_h = y2_clamped - y1_clamped;
+        if (real_w <= 0.0f || real_h <= 0.0f)
+            continue;
 
         if (is_ball)
         {
@@ -394,8 +422,8 @@ bool TRTDetector::detect(float *dev_rgbfp,
                 continue;
 
             ball_dets.push_back(object_det(ball_id_, prob_ball,
-                                            static_cast<int>(x_left),
-                                            static_cast<int>(y_top),
+                                            static_cast<int>(x1_clamped),
+                                            static_cast<int>(y1_clamped),
                                             static_cast<int>(real_w),
                                             static_cast<int>(real_h) + 1));
         }
@@ -408,8 +436,8 @@ bool TRTDetector::detect(float *dev_rgbfp,
                 continue;
 
             post_dets.push_back(object_det(post_id_, prob_post,
-                                            static_cast<int>(x_left),
-                                            static_cast<int>(y_top),
+                                            static_cast<int>(x1_clamped),
+                                            static_cast<int>(y1_clamped),
                                             static_cast<int>(real_w),
                                             static_cast<int>(real_h)));
         }

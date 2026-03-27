@@ -54,15 +54,36 @@ int main(int argc, char **argv)
 {
     string dir;
     string engine_path = "data/algorithm/best.engine";
+    int ball_id = 1;
+    int post_id = 0;
+    float ball_thresh = 0.5f;
+    float post_thresh = 0.4f;
     if (argc >= 2)
         dir.assign(argv[1]);
     else
     {
-        cout << "usage: auto_marker <images_path> [engine_path]" << endl;
+        cout << "usage: auto_marker <images_path> [engine_path] [ball_id post_id] [ball_thresh post_thresh]" << endl;
+        cout << "example: auto_marker imgs data/algorithm/best.engine 1 0 0.5 0.4" << endl;
         exit(0);
     }
     if (argc >= 3)
         engine_path.assign(argv[2]);
+    if (argc >= 5)
+    {
+        ball_id = atoi(argv[3]);
+        post_id = atoi(argv[4]);
+    }
+    if (argc >= 7)
+    {
+        ball_thresh = static_cast<float>(atof(argv[5]));
+        post_thresh = static_cast<float>(atof(argv[6]));
+    }
+
+    cout << "[auto_marker] engine=" << engine_path
+         << " ball_id=" << ball_id
+         << " post_id=" << post_id
+         << " ball_thresh=" << ball_thresh
+         << " post_thresh=" << post_thresh << endl;
 
     string label_path = dir+"_labels";
     bfs::path lpath(label_path);
@@ -72,9 +93,10 @@ int main(int argc, char **argv)
     }
     vector<string> picnames = get_filenames(dir);
 
-    // Keep legacy label behavior in this tool: class 0 = ball, class 1 = post.
+    // Default mapping follows online Vision: ball=1, post=0.
+    // Use CLI args to override when testing another dataset mapping.
     TRTDetector detector;
-    if (!detector.load(engine_path, 0, 1))
+    if (!detector.load(engine_path, ball_id, post_id))
     {
         cerr << "failed to load TensorRT engine: " << engine_path << endl;
         return 1;
@@ -93,6 +115,9 @@ int main(int argc, char **argv)
     check_error(err);
     err = cudaMalloc((void **)&dev_rgbfp_, rgbfp_size);
     check_error(err);    
+    size_t total_ball = 0;
+    size_t total_post = 0;
+    size_t ok_frames = 0;
     for(int i=0;i<picnames.size();i++)
     {
         cout<<"label: "<<picnames[i]<<endl;
@@ -104,7 +129,11 @@ int main(int argc, char **argv)
         check_error(err);
         err = cudaMemcpy(dev_src_, src.data, src_size, cudaMemcpyHostToDevice);
         check_error(err);
-        cudaResizePacked(dev_src_, w, h, dev_sized_, nw, nh);
+        float letterbox_scale = 1.0f;
+        int letterbox_pad_x = 0;
+        int letterbox_pad_y = 0;
+        cudaResizeLetterbox(dev_src_, w, h, dev_sized_, nw, nh,
+                    letterbox_scale, letterbox_pad_x, letterbox_pad_y);
         cudaBGR2RGBfp(dev_sized_, dev_rgbfp_, nw, nh);
 
         vector<object_det> ball_dets;
@@ -114,13 +143,16 @@ int main(int argc, char **argv)
                                         h,
                                         ball_dets,
                                         post_dets,
-                                        0.5f,
-                                        0.4f,
+                                        ball_thresh,
+                                        post_thresh,
                                         20,
                                         20,
                                         15,
                                         20,
                                         0.3f,
+                                        letterbox_scale,
+                                        letterbox_pad_x,
+                                        letterbox_pad_y,
                                         0.45f);
 
         bfs::path file(picnames[i]);
@@ -129,6 +161,9 @@ int main(int argc, char **argv)
 
         if (ok)
         {
+            ok_frames++;
+            total_ball += ball_dets.size();
+            total_post += post_dets.size();
             for (const auto &det : ball_dets)
             {
                 const int x1 = std::max(0, det.x);
@@ -169,6 +204,11 @@ int main(int argc, char **argv)
         label.close();
         cudaFree(dev_src_);
     }
+
+    cout << "[auto_marker] images=" << picnames.size()
+         << " ok_frames=" << ok_frames
+         << " total_ball=" << total_ball
+         << " total_post=" << total_post << endl;
 
     detector.release();
     cudaFree(dev_sized_);

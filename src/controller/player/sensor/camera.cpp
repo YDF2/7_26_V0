@@ -309,7 +309,7 @@ bool Camera::open()
             init_parameters.depth_mode = sl::DEPTH_MODE::NONE;
             init_parameters.coordinate_units = sl::UNIT::METER;
             init_parameters.camera_resolution = sl::RESOLUTION::VGA;
-            init_parameters.camera_fps = 30;
+            init_parameters.camera_fps = 60;
 
             auto returned_state = zed_.open(init_parameters);
             if (returned_state == sl::ERROR_CODE::SUCCESS)

@@ -40,6 +40,9 @@ public:
                  int min_post_w,
                  int min_post_h,
                  float d_w_h,
+                 float letterbox_scale,
+                 int letterbox_pad_x,
+                 int letterbox_pad_y,
                  float nms_thresh = 0.45f);
 
 private:
@@ -55,6 +58,8 @@ private:
                           int output_fields,
                           int num_anchors,
                           bool fields_first) const;
+
+    static float clampf(float v, float lo, float hi);
 
     static float iou(const object_det &a, const object_det &b);
     static void nms(std::vector<object_det> &dets, float nms_thresh);

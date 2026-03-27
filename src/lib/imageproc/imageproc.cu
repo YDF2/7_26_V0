@@ -1,5 +1,6 @@
 #include <cuda_runtime.h>
 #include <cstdint>
+#include "imageproc.hpp"
 
 __device__ unsigned char rgb_bound(int v)
 {
@@ -237,6 +238,55 @@ __global__ void resize_packed_kernal(T *in, int iw, int ih, T *out, int ow, int 
     }
 }
 
+__global__ void letterbox_resize_u8_kernal(unsigned char *in, int iw, int ih,
+                                           unsigned char *out, int ow, int oh,
+                                           float scale, int pad_x, int pad_y,
+                                           int new_w, int new_h,
+                                           unsigned char fill_v)
+{
+    int x = blockIdx.x;
+    int y = threadIdx.x;
+    int out_offset = (y * ow + x) * 3;
+
+    const bool in_roi = (x >= pad_x) && (x < pad_x + new_w) && (y >= pad_y) && (y < pad_y + new_h);
+    if (!in_roi)
+    {
+        out[out_offset + 0] = fill_v;
+        out[out_offset + 1] = fill_v;
+        out[out_offset + 2] = fill_v;
+        return;
+    }
+
+    const float src_x = (static_cast<float>(x - pad_x) + 0.5f) / scale - 0.5f;
+    const float src_y = (static_cast<float>(y - pad_y) + 0.5f) / scale - 0.5f;
+
+    const int x0 = max(0, min(iw - 1, static_cast<int>(floorf(src_x))));
+    const int y0 = max(0, min(ih - 1, static_cast<int>(floorf(src_y))));
+    const int x1 = min(iw - 1, x0 + 1);
+    const int y1 = min(ih - 1, y0 + 1);
+
+    const float dx = src_x - static_cast<float>(x0);
+    const float dy = src_y - static_cast<float>(y0);
+
+    const int in_offset_00 = (y0 * iw + x0) * 3;
+    const int in_offset_01 = (y0 * iw + x1) * 3;
+    const int in_offset_10 = (y1 * iw + x0) * 3;
+    const int in_offset_11 = (y1 * iw + x1) * 3;
+
+    for (int c = 0; c < 3; ++c)
+    {
+        const float v00 = static_cast<float>(in[in_offset_00 + c]);
+        const float v01 = static_cast<float>(in[in_offset_01 + c]);
+        const float v10 = static_cast<float>(in[in_offset_10 + c]);
+        const float v11 = static_cast<float>(in[in_offset_11 + c]);
+
+        const float top = v00 + (v01 - v00) * dx;
+        const float bottom = v10 + (v11 - v10) * dx;
+        const float value = top + (bottom - top) * dy;
+        out[out_offset + c] = rgb_bound(static_cast<int>(value));
+    }
+}
+
 __global__ void build_map_kernal(float *pCamK, float *pDistort, float *pInvNewCamK, float *pMapx, float *pMapy, int outImgW, int outImgH)
 {
 	const int tidx = blockDim.x*blockIdx.x + threadIdx.x;
@@ -316,6 +366,65 @@ __global__ void remap_kernal(unsigned char* pSrcImg, unsigned char* pDstImg, flo
 	}
 }
 
+__global__ void undistort_direct_kernal(unsigned char* in, unsigned char* out, float fx, float fy, float cx, float cy,
+                                        float k1, float k2, float k3, float p1, float p2, int w, int h, int channels)
+{
+	const int tidx = blockDim.x*blockIdx.x + threadIdx.x;
+	const int tidy = blockDim.y*blockIdx.y + threadIdx.y;
+	if (tidx < w && tidy < h)
+	{
+		// Normalize: convert pixel coords to [-norm_x, norm_x] range (centered at image center)
+		float x_norm = (tidx - cx) / fx;
+		float y_norm = (tidy - cy) / fy;
+
+		// Apply distortion correction (reverse distortion formula)
+		float r2 = x_norm * x_norm + y_norm * y_norm;
+		float kr = 1.0f + k1 * r2 + k2 * r2 * r2 + k3 * r2 * r2 * r2;
+		
+		float x_undist = x_norm * kr + 2.0f * p1 * x_norm * y_norm + p2 * (r2 + 2.0f * x_norm * x_norm);
+		float y_undist = y_norm * kr + 2.0f * p2 * x_norm * y_norm + p1 * (r2 + 2.0f * y_norm * y_norm);
+
+		// Back-project to pixel coords
+		float src_x = x_undist * fx + cx;
+		float src_y = y_undist * fy + cy;
+
+		int x_src = floorf(src_x);
+		int y_src = floorf(src_y);
+
+		// Bounds check - if out of bounds, fill with black
+		if (x_src < 0 || y_src < 0 || x_src >= w - 1 || y_src >= h - 1)
+		{
+			int out_idx = (tidy * w + tidx) * channels;
+			for (int c = 0; c < channels; ++c)
+			{
+				out[out_idx + c] = 0;
+			}
+			return;
+		}
+
+		// Bilinear interpolation
+		float dx = src_x - x_src;
+		float dy = src_y - y_src;
+		float w00 = (1.0f - dx) * (1.0f - dy);
+		float w01 = dx * (1.0f - dy);
+		float w10 = (1.0f - dx) * dy;
+		float w11 = dx * dy;
+
+		int out_idx = (tidy * w + tidx) * channels;
+		int in_idx_00 = (y_src * w + x_src) * channels;
+		int in_idx_01 = (y_src * w + x_src + 1) * channels;
+		int in_idx_10 = ((y_src + 1) * w + x_src) * channels;
+		int in_idx_11 = ((y_src + 1) * w + x_src + 1) * channels;
+
+		for (int c = 0; c < channels; ++c)
+		{
+			float val = w00 * in[in_idx_00 + c] + w01 * in[in_idx_01 + c] +
+						w10 * in[in_idx_10 + c] + w11 * in[in_idx_11 + c];
+			out[out_idx + c] = (unsigned char)(val + 0.5f);
+		}
+	}
+}
+
 namespace imgproc
 {
     void cudaYUYV2YUV(unsigned char *in, unsigned char *out, int w, int h)
@@ -359,6 +468,31 @@ namespace imgproc
         resize_packed_kernal<<<ow, oh>>>(in, iw, ih, sized, ow, oh);
     }
 
+    void cudaResizeLetterbox(unsigned char *in, int iw, int ih, unsigned char *sized, int ow, int oh,
+                             float &scale, int &pad_x, int &pad_y)
+    {
+        const float sx = static_cast<float>(ow) / static_cast<float>(iw);
+        const float sy = static_cast<float>(oh) / static_cast<float>(ih);
+        scale = (sx < sy) ? sx : sy;
+
+        int new_w = static_cast<int>(roundf(static_cast<float>(iw) * scale));
+        int new_h = static_cast<int>(roundf(static_cast<float>(ih) * scale));
+        if (new_w < 1)
+            new_w = 1;
+        if (new_h < 1)
+            new_h = 1;
+
+        pad_x = (ow - new_w) / 2;
+        pad_y = (oh - new_h) / 2;
+
+        const unsigned char fill_v = 114;
+        letterbox_resize_u8_kernal<<<ow, oh>>>(in, iw, ih,
+                                               sized, ow, oh,
+                                               scale, pad_x, pad_y,
+                                               new_w, new_h,
+                                               fill_v);
+    }
+
     void cudaUndistored(unsigned char *in, unsigned char *out, float *pCamK, float *pDistort, float *pInvNewCamK, 
         float* pMapx, float* pMapy, int w, int h, int c)
     {
@@ -367,6 +501,15 @@ namespace imgproc
         build_map_kernal <<<grid, block >>> (pCamK, pDistort, pInvNewCamK, pMapx, pMapy, w, h);
         cudaThreadSynchronize();
         remap_kernal <<<grid, block >>> (in, out, pMapx, pMapy, w, h, w, h, c);
+        cudaThreadSynchronize();
+    }
+
+    void cudaUndistort(unsigned char *in, unsigned char *out, float fx, float fy, float cx, float cy,
+                       float k1, float k2, float k3, float p1, float p2, int w, int h, int channels)
+    {
+        dim3 block(16, 16);
+        dim3 grid((w + block.x - 1) / block.x, (h + block.y - 1) / block.y);
+        undistort_direct_kernal<<<grid, block>>>(in, out, fx, fy, cx, cy, k1, k2, k3, p1, p2, w, h, channels);
         cudaThreadSynchronize();
     }
 };

@@ -62,6 +62,7 @@ private:
 
     bool detect_filed_;
     bool use_mv_;
+    bool use_zed_;
     int p_count_;
     int w_, h_;
     int camera_w_,  camera_h_, camera_size_;
@@ -99,6 +100,9 @@ private:
     int yuyv_size_;
     int sized_size_;
     int rgbf_size_;
+    float letterbox_scale_;
+    int letterbox_pad_x_;
+    int letterbox_pad_y_;
 
     cv::Mat camK;
 	cv::Mat newCamK;
