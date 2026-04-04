@@ -32,6 +32,27 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     h_ = CONF->get_config_value<int>("image.height");
     img_sd_type_ = IMAGE_SEND_RESULT;
     camera_src_ = nullptr;
+    dev_src_ = nullptr;
+    dev_bgr_ = nullptr;
+    dev_ori_ = nullptr;
+    dev_sized_ = nullptr;
+    dev_undis_ = nullptr;
+    dev_yuyv_ = nullptr;
+    dev_rgbfp_ = nullptr;
+    pCamKData = nullptr;
+    pInvNewCamKData = nullptr;
+    pDistortData = nullptr;
+    pMapxData = nullptr;
+    pMapyData = nullptr;
+    camera_w_ = 0;
+    camera_h_ = 0;
+    camera_size_ = 0;
+    src_size_ = 0;
+    bgr_size_ = 0;
+    ori_size_ = 0;
+    yuyv_size_ = 0;
+    sized_size_ = 0;
+    rgbf_size_ = 0;
 
     parser::parse(CONF->get_config_value<string>(CONF->player() + ".camera_info_file"), camera_infos_);
     parser::parse(CONF->get_config_value<string>(CONF->player() + ".camera_params_file"), params_);
@@ -168,6 +189,12 @@ void Vision::run()
 
         cudaError_t err;
         frame_mtx_.lock();
+        if (src_size_ <= 0 || camera_src_ == nullptr || dev_src_ == nullptr)
+        {
+            frame_mtx_.unlock();
+            is_busy_ = false;
+            return;
+        }
         err = cudaMemcpy(dev_src_, camera_src_, src_size_, cudaMemcpyHostToDevice);
         check_error(err);
         if (OPTS->use_robot())
@@ -182,38 +209,25 @@ void Vision::run()
         const int expected_yuyv = camera_w_ * camera_h_ * 2;
         const int expected_bgr = camera_w_ * camera_h_ * 3;
 
-        if (use_mv_)
+        if (src_size_ == expected_yuyv)
         {
-            cudaBayer2BGR(dev_src_, dev_bgr_, camera_w_, camera_h_, camera_infos_["saturation"].value,
-                          camera_infos_["red_gain"].value, camera_infos_["green_gain"].value, camera_infos_["blue_gain"].value);
+            cudaYUYV2BGR(dev_src_, dev_bgr_, camera_w_, camera_h_);
+        }
+        else if (src_size_ == expected_bgr)
+        {
+            // ZED-mini backend: buffer already contains BGR uint8 HWC packed.
+            err = cudaMemcpy(dev_bgr_, dev_src_, bgr_size_, cudaMemcpyDeviceToDevice);
+            check_error(err);
         }
         else
         {
-            if (src_size_ == expected_yuyv)
-            {
-                cudaYUYV2BGR(dev_src_, dev_bgr_, camera_w_, camera_h_);
-            }
-            else if (src_size_ == expected_bgr)
-            {
-                // ZED-mini backend: buffer already contains BGR uint8 HWC packed.
-                err = cudaMemcpy(dev_bgr_, dev_src_, bgr_size_, cudaMemcpyDeviceToDevice);
-                check_error(err);
-            }
-            else
-            {
-                LOG(LOG_ERROR) << "Vision: unknown camera input size: src_size=" << src_size_
-                                << ", expected_yuyv=" << expected_yuyv << ", expected_bgr=" << expected_bgr << endll;
-                is_busy_ = false;
-                return;
-            }
+            LOG(LOG_ERROR) << "Vision: unknown camera input size: src_size=" << src_size_
+                           << ", expected_yuyv=" << expected_yuyv << ", expected_bgr=" << expected_bgr << endll;
+            is_busy_ = false;
+            return;
         }
         cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, w_, h_);
-        if (use_mv_)
-        {
-            // MV Bayer path keeps legacy undistortion behavior.
-            imgproc::cudaUndistored(dev_ori_, dev_undis_, pCamKData, pDistortData, pInvNewCamKData, pMapxData, pMapyData, w_, h_, 3);
-        }
-        else if (use_zed_)
+        if (use_zed_)
         {
             // ZED path: now enable direct undistortion using ZED camera parameters
             imgproc::cudaUndistort(dev_ori_, dev_undis_, 
@@ -434,26 +448,73 @@ void Vision::updata(const pub_ptr &pub, const int &type)
     if (type == Sensor::SENSOR_CAMERA)
     {
         shared_ptr<Camera> sptr = dynamic_pointer_cast<Camera>(pub);
-        if (camera_src_ == nullptr)
+        if (!sptr)
         {
-            camera_w_ = sptr->camera_w();
-            camera_h_ = sptr->camera_h();
-            camera_size_ = sptr->camera_size();
-            use_mv_ = sptr->use_mv();
-            use_zed_ = sptr->use_zed();
+            return;
+        }
+
+        const int new_camera_w = sptr->camera_w();
+        const int new_camera_h = sptr->camera_h();
+        const int new_camera_size = sptr->camera_size();
+        if (new_camera_w <= 0 || new_camera_h <= 0 || new_camera_size <= 0)
+        {
+            LOG(LOG_ERROR) << "Vision: invalid camera dimensions w=" << new_camera_w
+                           << " h=" << new_camera_h << " size=" << new_camera_size << endll;
+            return;
+        }
+
+        if (camera_src_ == nullptr || new_camera_size != src_size_)
+        {
+            if (camera_src_ != nullptr)
+            {
+                free(camera_src_);
+                camera_src_ = nullptr;
+            }
+            if (dev_src_ != nullptr)
+            {
+                cudaFree(dev_src_);
+                dev_src_ = nullptr;
+            }
+            if (dev_bgr_ != nullptr)
+            {
+                cudaFree(dev_bgr_);
+                dev_bgr_ = nullptr;
+            }
+
+            camera_w_ = new_camera_w;
+            camera_h_ = new_camera_h;
+            camera_size_ = new_camera_size;
             src_size_ = camera_size_;
             bgr_size_ = camera_w_ * camera_h_ * 3;
+            use_zed_ = sptr->use_zed();
             camera_src_ = (unsigned char *)malloc(camera_size_);
+            if (camera_src_ == nullptr)
+            {
+                LOG(LOG_ERROR) << "Vision: malloc camera_src_ failed, size=" << camera_size_ << endll;
+                return;
+            }
             cudaError_t err;
             err = cudaMalloc((void **)&dev_src_, src_size_);
             check_error(err);
             err = cudaMalloc((void **)&dev_bgr_, bgr_size_);
             check_error(err);
 
-            if (use_zed_)
-            {
-                LOG(LOG_WARN) << "Vision: Stage-A ZED path bypasses undistortion to recover debug image visibility." << endll;
-            }
+            LOG(LOG_INFO) << "Vision: camera buffer reinit, src_size=" << src_size_
+                          << " bgr_size=" << bgr_size_ << " use_zed=" << use_zed_ << endll;
+        }
+        else
+        {
+            camera_w_ = new_camera_w;
+            camera_h_ = new_camera_h;
+            camera_size_ = new_camera_size;
+            use_zed_ = sptr->use_zed();
+        }
+
+        unsigned char *src_ptr = sptr->buffer();
+        if (src_ptr == nullptr)
+        {
+            LOG(LOG_ERROR) << "Vision: camera buffer is null." << endll;
+            return;
         }
 
         if (!zed_cam_param_applied_ && sptr->use_zed())
@@ -508,7 +569,7 @@ void Vision::updata(const pub_ptr &pub, const int &type)
         }
 
         frame_mtx_.lock();
-        memcpy(camera_src_, sptr->buffer(), src_size_);
+    memcpy(camera_src_, src_ptr, src_size_);
         if (OPTS->use_robot())
         {
             imu_mtx_.lock();

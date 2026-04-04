@@ -10,7 +10,6 @@ add_library(sensor STATIC
             cmd_read.c)
             
 target_link_libraries(sensor
-            MVSDK
             server
             dynamixel
             gpio

@@ -4,7 +4,6 @@
 #include <map>
 #include <thread>
 #include <linux/videodev2.h>
-#include <CameraApi.h>
 #include "sensor.hpp"
 #include "model.hpp"
 #include "configuration.hpp"
@@ -28,14 +27,15 @@ public:
     void set_camera_info(const camera_info &para);
     inline unsigned char *buffer() const
     {
-        if (use_mv_ || use_zed_)
+        if (use_zed_)
         {
             return buffer_;
         }
-        else
+        if (buffers_ == nullptr || buffer_count_ == 0)
         {
-            return buffers_[num_bufs_].start;
+            return nullptr;
         }
+        return buffers_[num_bufs_].start;
     }
 
     inline int camera_w() const
@@ -48,11 +48,6 @@ public:
         return h_;
     }
 
-    inline bool use_mv() const
-    {
-        return use_mv_;
-    }
-
     inline bool use_zed() const
     {
         return use_zed_;
@@ -62,11 +57,7 @@ public:
 
     inline int camera_size() const
     {
-        if (use_mv_)
-        {
-            return w_ * h_;
-        }
-        else if (use_zed_)
+        if (use_zed_)
         {
             return w_ * h_ * 3;
         }
@@ -86,10 +77,10 @@ private:
         size_t bytesused;
         int lagtimems;
     };
-    bool use_mv_;
     bool use_zed_;
     std::thread td_;
     VideoBuffer *buffers_;
+    unsigned int buffer_count_;
     v4l2_buffer buf_;
     unsigned int num_bufs_;
     int fd_;
@@ -109,8 +100,6 @@ private:
     int zed_calib_w_;
     int zed_calib_h_;
 #endif
-    tSdkCameraCapbility     tCapability_;
-    tSdkFrameHead           sFrameInfo_;
     std::map<std::string, camera_info> camera_infos_;
 };
 

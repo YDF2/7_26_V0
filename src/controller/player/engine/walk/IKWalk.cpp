@@ -95,7 +95,7 @@ bool IKWalk::walk(
         * stepSpline.pos(phaseLeft);
     double rightX = params.enabledGain
         * params.stepGain
-        * stepSpline.pos(phaseRight)+0.006; //no add before
+        * stepSpline.pos(phaseRight)+0.006; //no add before ydf delete +0.006
     
     //Compute feet swing oscillation
     double leftY = swingVal;

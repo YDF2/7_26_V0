@@ -61,7 +61,6 @@ private:
     Eigen::Vector2d odometry_offset_;
 
     bool detect_filed_;
-    bool use_mv_;
     bool use_zed_;
     int p_count_;
     int w_, h_;
