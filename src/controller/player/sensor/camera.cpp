@@ -116,10 +116,16 @@ void Camera::run()
                         src_h, src_w, CV_8UC4,
                         zed_image_.getPtr<sl::uchar4>(sl::MEM::CPU),
                         static_cast<size_t>(zed_image_.getStepBytes(sl::MEM::CPU)));
-
-                    cv::Mat resized_bgra;
-                    cv::resize(src_bgra, resized_bgra, cv::Size(w_, h_), 0, 0, cv::INTER_LINEAR);
-                    cv::cvtColor(resized_bgra, dst_bgr, cv::COLOR_BGRA2BGR);
+                    if (src_w == w_ && src_h == h_)
+                    {
+                        cv::cvtColor(src_bgra, dst_bgr, cv::COLOR_BGRA2BGR);
+                    }
+                    else
+                    {
+                        cv::Mat resized_bgra;
+                        cv::resize(src_bgra, resized_bgra, cv::Size(w_, h_), 0, 0, cv::INTER_LINEAR);
+                        cv::cvtColor(resized_bgra, dst_bgr, cv::COLOR_BGRA2BGR);
+                    }
                 }
                 else if (channels == 3)
                 {
@@ -127,7 +133,14 @@ void Camera::run()
                         src_h, src_w, CV_8UC3,
                         zed_image_.getPtr<sl::uchar3>(sl::MEM::CPU),
                         static_cast<size_t>(zed_image_.getStepBytes(sl::MEM::CPU)));
-                    cv::resize(src_c3, dst_bgr, cv::Size(w_, h_), 0, 0, cv::INTER_LINEAR);
+                    if (src_w == w_ && src_h == h_)
+                    {
+                        src_c3.copyTo(dst_bgr);
+                    }
+                    else
+                    {
+                        cv::resize(src_c3, dst_bgr, cv::Size(w_, h_), 0, 0, cv::INTER_LINEAR);
+                    }
                 }
                 else
                 {
@@ -260,6 +273,12 @@ bool Camera::open()
     LOG(LOG_INFO) << "Camera: try ZED-mini backend first." << endll;
     zed_calib_valid_ = false;
 
+    // Capture in HD720 and keep native frame in camera buffer.
+    const int zed_capture_w = 1280;
+    const int zed_capture_h = 720;
+    w_ = zed_capture_w;
+    h_ = zed_capture_h;
+
     buffer_ = (unsigned char *)malloc(static_cast<size_t>(w_) * static_cast<size_t>(h_) * 3);
     if (!buffer_)
     {
@@ -271,8 +290,7 @@ bool Camera::open()
         init_parameters.depth_mode = sl::DEPTH_MODE::NONE;
         init_parameters.coordinate_units = sl::UNIT::METER;
 
-        init_parameters.camera_resolution = sl::RESOLUTION::VGA;
-        //init_parameters.camera_resolution = sl::RESOLUTION::HD1080;
+        init_parameters.camera_resolution = sl::RESOLUTION::HD720;
         init_parameters.camera_fps = 60;
 
         auto returned_state = zed_.open(init_parameters);
@@ -290,13 +308,30 @@ bool Camera::open()
                 zed_calib_h_ = static_cast<int>(camera_info.camera_configuration.resolution.height);
             }
 
-            const float sx = (zed_calib_w_ > 0) ? (static_cast<float>(w_) / static_cast<float>(zed_calib_w_)) : 1.0f;
-            const float sy = (zed_calib_h_ > 0) ? (static_cast<float>(h_) / static_cast<float>(zed_calib_h_)) : 1.0f;
+            const float src_w = static_cast<float>(zed_calib_w_);
+            const float src_h = static_cast<float>(zed_calib_h_);
+            const float target_aspect = static_cast<float>(target_w) / static_cast<float>(target_h);
+
+            float crop_w = src_w;
+            float crop_h = src_h;
+            if (src_w / src_h > target_aspect)
+            {
+                crop_w = src_h * target_aspect;
+            }
+            else
+            {
+                crop_h = src_w / target_aspect;
+            }
+
+            const float crop_x = 0.5f * (src_w - crop_w);
+            const float crop_y = 0.5f * (src_h - crop_h);
+            const float sx = static_cast<float>(target_w) / crop_w;
+            const float sy = static_cast<float>(target_h) / crop_h;
 
             zed_left_params_.fx = left_cam.fx * sx;
             zed_left_params_.fy = left_cam.fy * sy;
-            zed_left_params_.cx = left_cam.cx * sx;
-            zed_left_params_.cy = left_cam.cy * sy;
+            zed_left_params_.cx = (left_cam.cx - crop_x) * sx;
+            zed_left_params_.cy = (left_cam.cy - crop_y) * sy;
             zed_left_params_.k1 = left_cam.disto[0];
             zed_left_params_.k2 = left_cam.disto[1];
             zed_left_params_.p1 = left_cam.disto[2];
@@ -310,7 +345,10 @@ bool Camera::open()
             zed_calib_valid_ = true;
 
             LOG(LOG_INFO) << "ZED calibration(left): src=" << zed_calib_w_ << "x" << zed_calib_h_
-                          << " target=" << w_ << "x" << h_
+                          << " capture=" << w_ << "x" << h_
+                          << " target=" << target_w << "x" << target_h
+                          << " crop=" << static_cast<int>(crop_w) << "x" << static_cast<int>(crop_h)
+                          << " crop_xy=" << static_cast<int>(crop_x) << "," << static_cast<int>(crop_y)
                           << " fx=" << zed_left_params_.fx
                           << " fy=" << zed_left_params_.fy
                           << " cx=" << zed_left_params_.cx
@@ -337,6 +375,10 @@ bool Camera::open()
 #else
     LOG(LOG_WARN) << "ZED backend is not compiled, fallback to V4L2." << endll;
 #endif
+
+    // Restore configured target size for V4L2 path.
+    w_ = target_w;
+    h_ = target_h;
 
     std::string dev_name = CONF->get_config_value<string>("image.dev_name");
     LOG(LOG_INFO) << "Camera: open V4L2 device " << dev_name << endll;

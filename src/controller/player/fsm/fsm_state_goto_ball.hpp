@@ -9,9 +9,9 @@ class FSMStateGotoBall: public FSMState
 public:
     FSMStateGotoBall(FSM_Ptr fsm): FSMState(fsm)
     {
-        enter_kick_dis_ = 0.3;
-        retreat_x_dis_ = 0.2;
-        retreat_y_dis_ = 0.1;
+        enter_kick_dis_ = CONF->get_config_value<float>("kick.enter_kick_dis_");
+        retreat_x_dis_ = CONF->get_config_value<float>("kick.retreat_x_dis_");
+        retreat_y_dis_ = CONF->get_config_value<float>("kick.retreat_y_dis_");
     }
     
     task_list OnStateEnter()

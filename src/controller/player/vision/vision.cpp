@@ -34,6 +34,7 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     camera_src_ = nullptr;
     dev_src_ = nullptr;
     dev_bgr_ = nullptr;
+    dev_crop_ = nullptr;
     dev_ori_ = nullptr;
     dev_sized_ = nullptr;
     dev_undis_ = nullptr;
@@ -49,6 +50,7 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     camera_size_ = 0;
     src_size_ = 0;
     bgr_size_ = 0;
+    crop_size_ = 0;
     ori_size_ = 0;
     yuyv_size_ = 0;
     sized_size_ = 0;
@@ -102,6 +104,10 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     letterbox_scale_ = 1.0f;
     letterbox_pad_x_ = 0;
     letterbox_pad_y_ = 0;
+    crop_w_ = 0;
+    crop_h_ = 0;
+    crop_x_ = 0;
+    crop_y_ = 0;
 }
 
 Vision::~Vision()
@@ -226,7 +232,17 @@ void Vision::run()
             is_busy_ = false;
             return;
         }
-        cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, w_, h_);
+        const bool use_center_crop = use_zed_ && crop_w_ > 0 && crop_h_ > 0 &&
+                                     (crop_w_ < camera_w_ || crop_h_ < camera_h_);
+        if (use_center_crop)
+        {
+            cudaCropCenter(dev_bgr_, camera_w_, camera_h_, dev_crop_, crop_w_, crop_h_, crop_x_, crop_y_);
+            cudaResizePacked(dev_crop_, crop_w_, crop_h_, dev_ori_, w_, h_);
+        }
+        else
+        {
+            cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, w_, h_);
+        }
         if (use_zed_)
         {
             // ZED path: now enable direct undistortion using ZED camera parameters
@@ -480,6 +496,11 @@ void Vision::updata(const pub_ptr &pub, const int &type)
                 cudaFree(dev_bgr_);
                 dev_bgr_ = nullptr;
             }
+            if (dev_crop_ != nullptr)
+            {
+                cudaFree(dev_crop_);
+                dev_crop_ = nullptr;
+            }
 
             camera_w_ = new_camera_w;
             camera_h_ = new_camera_h;
@@ -487,6 +508,28 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             src_size_ = camera_size_;
             bgr_size_ = camera_w_ * camera_h_ * 3;
             use_zed_ = sptr->use_zed();
+
+            const float target_aspect = static_cast<float>(w_) / static_cast<float>(h_);
+            const float src_aspect = static_cast<float>(camera_w_) / static_cast<float>(camera_h_);
+            crop_w_ = camera_w_;
+            crop_h_ = camera_h_;
+            if (use_zed_)
+            {
+                if (src_aspect > target_aspect)
+                {
+                    crop_w_ = static_cast<int>(static_cast<float>(camera_h_) * target_aspect + 0.5f);
+                }
+                else if (src_aspect < target_aspect)
+                {
+                    crop_h_ = static_cast<int>(static_cast<float>(camera_w_) / target_aspect + 0.5f);
+                }
+            }
+            if (crop_w_ <= 0 || crop_w_ > camera_w_)
+                crop_w_ = camera_w_;
+            if (crop_h_ <= 0 || crop_h_ > camera_h_)
+                crop_h_ = camera_h_;
+
+            crop_size_ = crop_w_ * crop_h_ * 3;
             camera_src_ = (unsigned char *)malloc(camera_size_);
             if (camera_src_ == nullptr)
             {
@@ -498,9 +541,13 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             check_error(err);
             err = cudaMalloc((void **)&dev_bgr_, bgr_size_);
             check_error(err);
+            err = cudaMalloc((void **)&dev_crop_, crop_size_);
+            check_error(err);
 
             LOG(LOG_INFO) << "Vision: camera buffer reinit, src_size=" << src_size_
-                          << " bgr_size=" << bgr_size_ << " use_zed=" << use_zed_ << endll;
+                          << " bgr_size=" << bgr_size_
+                          << " crop=" << crop_w_ << "x" << crop_h_
+                          << " use_zed=" << use_zed_ << endll;
         }
         else
         {
@@ -684,6 +731,7 @@ void Vision::stop()
         cudaFree(dev_yuyv_);
         cudaFree(dev_src_);
         cudaFree(dev_bgr_);
+        cudaFree(dev_crop_);
         cudaFree(dev_rgbfp_);
         cudaFree(dev_sized_);
 

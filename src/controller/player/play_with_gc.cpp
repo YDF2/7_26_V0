@@ -21,8 +21,32 @@ std::list<task_ptr> Player::play_with_gc()
     RoboCupGameControlData gc_data = WM->gc_data();
     Vector2f head_init = SE->head_init_deg_;
     int secondT = (int)gc_data.secondaryTime;
-    int kickoff = (int)gc_data.kickOffTeam;
+    int kickoff = (int)gc_data.kickingTeam;
     int team_index = gc_data.teams[0].teamNumber == CONF->team_number() ? 0 : 1;
+
+    // ===== 诊断日志 BEGIN =====
+    static int dbg_counter = 0;
+    static int dbg_last_state = -1;
+    ++dbg_counter;
+    // 每隔约1秒打印一次基本状态
+    if (dbg_counter % 10 == 0)
+    {
+        LOG(LOG_WARN) << "[GC] state=" << (int)gc_data.state
+                      << " kickoff=" << kickoff
+                      << " secondT=" << secondT
+                      << " setPlay=" << (int)gc_data.setPlay
+                      << " stopped=" << (int)gc_data.stopped
+                      << " team0=" << (int)gc_data.teams[0].teamNumber
+                      << " team1=" << (int)gc_data.teams[1].teamNumber
+                      << endll;
+    }
+    // 状态变化时立即打印
+    if ((int)gc_data.state != dbg_last_state)
+    {
+        LOG(LOG_WARN) << "[GC STATE CHANGE] " << dbg_last_state << " -> " << (int)gc_data.state << endll;
+        dbg_last_state = (int)gc_data.state;
+    }
+    // ===== 诊断日志 END =====
 
     switch (gc_data.state) //位置信息在config文件中修改
     {
@@ -123,33 +147,47 @@ std::list<task_ptr> Player::play_with_gc()
         break;
     case STATE_PLAYING:
         played_ = true;
-        // LOG(LOG_INFO) << "team_index" << team_index << "\tid" << CONF->id() << endll;
-        // LOG(LOG_INFO) << "penalty_0_team_0:     " << gc_data.teams[0].players[CONF->id() - 1].penalty << endll;
-        // LOG(LOG_INFO) << "penalty_0_team_1:     " << gc_data.teams[0].players[CONF->id()].penalty << endll;
-        // LOG(LOG_INFO) << "penalty_1_team_0:     " << gc_data.teams[1].players[CONF->id() - 1].penalty << endll;
-        // LOG(LOG_INFO) << "penalty_1_team_1:     " << gc_data.teams[1].players[CONF->id()].penalty << endll;
-        if (gc_data.teams[team_index].players[CONF->id() - 1].penalty == HL_PICKUP_OR_INCAPABLE || gc_data.teams[team_index].players[CONF->id() - 1].penalty == HL_SERVICE)
         {
-            LOG(LOG_INFO) << "...........play_pickup_front............." << endll;
-            tasks.push_back(make_shared<LookTask>(HEAD_STATE_SEARCH_BALL));
-            tasks.push_back(make_shared<WalkTask>(0.0, 0.0, 0.0, false));
-            if (WM->self().dir > 45.0)
-                WM->set_my_pos(Vector2d(pickup_pos_.x(), -pickup_pos_.y())); //
-            else if (WM->self().dir < -45.0)
-                WM->set_my_pos(pickup_pos_); //
-        }
-        else
-        {
-            if (kickoff != DROPBALL && kickoff != CONF->team_number() && secondT != 0)
+            // 检查是否被罚下
+            uint8_t my_penalty = gc_data.teams[team_index].players[CONF->id() - 1].penalty;
+            if (my_penalty == PENALTY_INCAPABLE_ROBOT || my_penalty == PENALTY_PICK_UP)
             {
-                LOG(LOG_INFO) << "...........play_search_front............." << endll;
+                LOG(LOG_WARN) << "[GC PLAYING] PENALIZED penalty=" << (int)my_penalty << endll;
                 tasks.push_back(make_shared<LookTask>(HEAD_STATE_SEARCH_BALL));
+                tasks.push_back(make_shared<WalkTask>(0.0, 0.0, 0.0, false));
+                if (WM->self().dir > 45.0)
+                    WM->set_my_pos(Vector2d(pickup_pos_.x(), -pickup_pos_.y()));
+                else if (WM->self().dir < -45.0)
+                    WM->set_my_pos(pickup_pos_);
             }
             else
             {
-                // LOG(LOG_INFO) << "...........play_kickoff_normally............." << endll;
-                task_list tlist = fsm_->Tick();
-                tasks.insert(tasks.end(), tlist.begin(), tlist.end());
+                // Ball Free: kickoff==255 → 立即行动（新规则：所有人等Ball Free）
+                // 等待超时: secondT<=0 → 行动
+                bool can_act = (kickoff == KICKING_TEAM_NONE) ||
+                               (secondT <= 0);
+
+                // 每秒打印一次 (已在顶部每10次打印一次基础信息)
+                // 当 can_act 状态改变时立即打印
+                static bool last_can_act = true;
+                if (can_act != last_can_act)
+                {
+                    LOG(LOG_WARN) << "[GC PLAYING] can_act CHANGED: " << last_can_act << "->" << can_act
+                                  << " kickoff=" << kickoff << "(" << CONF->team_number() << ")"
+                                  << " secondT=" << secondT
+                                  << " KICKING_TEAM_NONE=" << KICKING_TEAM_NONE << endll;
+                    last_can_act = can_act;
+                }
+
+                if (!can_act)
+                {
+                    tasks.push_back(make_shared<LookTask>(HEAD_STATE_SEARCH_BALL));
+                }
+                else
+                {
+                    task_list tlist = fsm_->Tick();
+                    tasks.insert(tasks.end(), tlist.begin(), tlist.end());
+                }
             }
         }
         break;

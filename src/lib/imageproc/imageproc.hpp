@@ -18,6 +18,8 @@ namespace imgproc
 
     void cudaResizePacked(float *in, int iw, int ih, float *sized, int ow, int oh);
     void cudaResizePacked(unsigned char *in, int iw, int ih, unsigned char *sized, int ow, int oh);
+    void cudaCropCenter(unsigned char *in, int iw, int ih, unsigned char *out, int ow, int oh,
+                        int &crop_x, int &crop_y);
     void cudaResizeLetterbox(unsigned char *in, int iw, int ih, unsigned char *sized, int ow, int oh,
                              float &scale, int &pad_x, int &pad_y);
     void cudaUndistored(unsigned char *in, unsigned char *out, float *pCamK, float *pDistort, float *pInvNewCamK, float* pMapx, float* pMapy, int w, int h, int c);
