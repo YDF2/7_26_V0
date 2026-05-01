@@ -2,6 +2,9 @@
 #define __PLAYER_HPP
 
 #include <list>
+#include <atomic>
+#include <thread>
+#include <termios.h>
 #include "timer.hpp"
 #include "core/worldmodel.hpp"
 #include "robot/robot.hpp"
@@ -31,7 +34,12 @@ private:
     void play_with_remote();
     std::list<task_ptr> play_with_gc();
     std::list<task_ptr> play_without_gc();
+    std::list<task_ptr> play_manual();
     std::list<task_ptr> think();
+    void start_manual_control();
+    void stop_manual_control();
+    void manual_control_loop();
+    void apply_manual_key(char key);
 
     bool regist(); // 注册传感器
     void unregist();
@@ -43,6 +51,27 @@ private:
     std::string role_;
     unsigned int self_location_count_;
     bool played_;
+
+    std::thread manual_thread_;
+    std::atomic<bool> manual_thread_running_;
+    std::atomic<float> manual_x_;
+    std::atomic<float> manual_y_;
+    std::atomic<float> manual_d_;
+    std::atomic<bool> manual_enable_;
+    std::atomic<long long> manual_last_input_ms_;
+    std::atomic<bool> manual_kick_request_;
+    std::atomic<long long> manual_last_kick_ms_;
+    int manual_last_fall_dir_;
+    struct termios terminal_old_;
+    bool terminal_raw_;
+
+    float manual_forward_step_;
+    float manual_backward_step_;
+    float manual_side_step_;
+    float manual_turn_step_;
+    int manual_input_timeout_ms_;
+    int manual_kick_cooldown_ms_;
+    bool manual_debug_log_;
 
     Eigen::Vector2d init_pos_, start_pos_, kickoff_pos_, pickup_pos_;
     FSM_Ptr fsm_;

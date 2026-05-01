@@ -44,6 +44,10 @@ public:
     {
         return use_gc_;
     }
+    int control_flag() const
+    {
+        return control_flag_;
+    }
     bool use_comm() const
     {
         return use_comm_;
@@ -67,6 +71,7 @@ private:
     bool use_robot_;
     bool use_remote_;
     bool use_gc_;
+    int control_flag_;
     bool use_comm_;
     bool image_record_;
 };

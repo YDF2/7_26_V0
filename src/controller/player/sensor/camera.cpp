@@ -266,6 +266,8 @@ bool Camera::open()
     buffer_ = nullptr;
     const int target_w = CONF->get_config_value<int>("image.width");
     const int target_h = CONF->get_config_value<int>("image.height");
+    const int zed_target_w = 640;
+    const int zed_target_h = 640;
     w_ = target_w;
     h_ = target_h;
 
@@ -310,7 +312,7 @@ bool Camera::open()
 
             const float src_w = static_cast<float>(zed_calib_w_);
             const float src_h = static_cast<float>(zed_calib_h_);
-            const float target_aspect = static_cast<float>(target_w) / static_cast<float>(target_h);
+            const float target_aspect = static_cast<float>(zed_target_w) / static_cast<float>(zed_target_h);
 
             float crop_w = src_w;
             float crop_h = src_h;
@@ -325,8 +327,8 @@ bool Camera::open()
 
             const float crop_x = 0.5f * (src_w - crop_w);
             const float crop_y = 0.5f * (src_h - crop_h);
-            const float sx = static_cast<float>(target_w) / crop_w;
-            const float sy = static_cast<float>(target_h) / crop_h;
+            const float sx = static_cast<float>(zed_target_w) / crop_w;
+            const float sy = static_cast<float>(zed_target_h) / crop_h;
 
             zed_left_params_.fx = left_cam.fx * sx;
             zed_left_params_.fy = left_cam.fy * sy;
@@ -346,7 +348,7 @@ bool Camera::open()
 
             LOG(LOG_INFO) << "ZED calibration(left): src=" << zed_calib_w_ << "x" << zed_calib_h_
                           << " capture=" << w_ << "x" << h_
-                          << " target=" << target_w << "x" << target_h
+                          << " target=" << zed_target_w << "x" << zed_target_h
                           << " crop=" << static_cast<int>(crop_w) << "x" << static_cast<int>(crop_h)
                           << " crop_xy=" << static_cast<int>(crop_x) << "," << static_cast<int>(crop_y)
                           << " fx=" << zed_left_params_.fx

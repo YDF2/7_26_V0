@@ -1,3 +1,7 @@
+#include <cctype>
+#include <chrono>
+#include <sys/select.h>
+#include <unistd.h>
 #include "player.hpp"
 #include "configuration.hpp"
 #include "task/action_task.hpp"
@@ -21,6 +25,16 @@
 #include "fsm/fsm_state_sl.hpp"
 #include "fsm/fsm_state_dribble.hpp"
 
+namespace
+{
+    long long now_ms()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+    }
+}
+
 using namespace std;
 using namespace motion;
 using namespace Eigen;
@@ -39,6 +53,25 @@ Player::Player() : Timer(CONF->get_config_value<int>("think_period"))
 
     self_location_count_ = 0;
     played_ = false;
+    manual_thread_running_ = false;
+    manual_x_ = 0.0f;
+    manual_y_ = 0.0f;
+    manual_d_ = 0.0f;
+    manual_enable_ = false;
+    manual_last_input_ms_ = 0;
+    manual_kick_request_ = false;
+    manual_last_kick_ms_ = 0;
+    manual_last_fall_dir_ = FALL_NONE;
+    terminal_raw_ = false;
+
+    manual_forward_step_ = CONF->get_config_value<float>("manual_control.x");
+    manual_backward_step_ = -manual_forward_step_;
+    manual_side_step_ = CONF->get_config_value<float>("manual_control.y");
+    manual_turn_step_ = CONF->get_config_value<float>("manual_control.d");
+    manual_input_timeout_ms_ = CONF->get_config_value<int>("manual_control.input_timeout_ms");
+    manual_kick_cooldown_ms_ = CONF->get_config_value<int>("manual_control.kick_cooldown_ms");
+    manual_debug_log_ = CONF->get_config_value<bool>("manual_control.debug_log");
+
     fsm_ = make_shared<FSM>();
 }
 
@@ -58,7 +91,21 @@ void Player::run()
                 raise(SIGINT);
             }
         }
-        if (OPTS->use_remote())
+        if (OPTS->control_flag() == 1)
+        {
+            if ((period_count_ * period_ms_ / 100) % 5 == 0)
+            {
+                if (OPTS->use_gc())
+                    make_shared<GcretTask>()->perform();
+            }
+            list<task_ptr> tasks = play_manual();
+            for (auto &tsk : tasks)
+            {
+                if (tsk.get())
+                    tsk->perform();
+            }
+        }
+        else if (OPTS->use_remote())
         {
             play_with_remote();
         }
@@ -195,6 +242,10 @@ bool Player::init()
     {
         LE->start();
     }
+    if (OPTS->control_flag() == 1)
+    {
+        start_manual_control();
+    }
     ActionTask p("ready");
     p.perform();
     start_timer();
@@ -204,6 +255,11 @@ bool Player::init()
 void Player::stop()
 {
     is_alive_ = false;
+    stop_manual_control();
+    if (period_ms_ > 0)
+    {
+        delete_timer();
+    }
     WE->stop();
     SE->stop();
     AE->stop();
@@ -212,11 +268,6 @@ void Player::stop()
         LE->stop();
     }
     MADT->stop();
-
-    if (is_alive_)
-    {
-        delete_timer();
-    }
 
     sleep(1);
     unregist();
@@ -326,4 +377,222 @@ sensor_ptr Player::get_sensor(const std::string &name)
     }
 
     return nullptr;
+}
+
+std::list<task_ptr> Player::play_manual()
+{
+    list<task_ptr> tasks;
+
+    const int fall_dir = WM->fall_data();
+    if (fall_dir != FALL_NONE)
+    {
+        manual_enable_ = false;
+        manual_x_ = 0.0f;
+        manual_y_ = 0.0f;
+        manual_d_ = 0.0f;
+
+        if (manual_last_fall_dir_ != fall_dir && manual_debug_log_)
+        {
+            if (fall_dir == FALL_FORWARD)
+                LOG(LOG_WARN) << "manual mode: detected forward fall, enter GETUP" << endll;
+            else if (fall_dir == FALL_BACKWARD)
+                LOG(LOG_WARN) << "manual mode: detected backward fall, enter GETUP" << endll;
+            else
+                LOG(LOG_WARN) << "manual mode: detected fall, enter GETUP" << endll;
+            manual_last_fall_dir_ = fall_dir;
+        }
+
+        if (fsm_->get_state() != FSM_STATE_GETUP)
+        {
+            tasks = fsm_->Trans(FSM_STATE_GETUP);
+        }
+
+        list<task_ptr> tlist = fsm_->Tick();
+        tasks.insert(tasks.end(), tlist.begin(), tlist.end());
+        return tasks;
+    }
+
+    if (manual_last_fall_dir_ != FALL_NONE)
+        manual_last_fall_dir_ = FALL_NONE;
+
+    if (fsm_->get_state() == FSM_STATE_GETUP)
+    {
+        tasks = fsm_->Tick();
+        return tasks;
+    }
+
+    if (manual_kick_request_.exchange(false))
+    {
+        const long long now = now_ms();
+        const long long elapsed = now - manual_last_kick_ms_.load();
+        if (elapsed >= manual_kick_cooldown_ms_)
+        {
+            manual_last_kick_ms_ = now;
+            manual_x_ = 0.0f;
+            manual_y_ = 0.0f;
+            manual_d_ = 0.0f;
+            manual_enable_ = false;
+
+            tasks.push_back(make_shared<WalkTask>(0.0f, 0.0f, 0.0f, false));
+            tasks.push_back(make_shared<ActionTask>("left_little_kick"));
+            if (manual_debug_log_)
+                LOG(LOG_INFO) << "manual mode: trigger left_little_kick" << endll;
+            return tasks;
+        }
+    }
+
+    if (WM->ball().can_see)
+        tasks.push_back(make_shared<LookTask>(HEAD_STATE_TRACK_BALL));
+    else
+        tasks.push_back(make_shared<LookTask>(HEAD_STATE_SEARCH_BALL));
+
+    const float x = manual_x_.load();
+    const float y = manual_y_.load();
+    const float d = manual_d_.load();
+    const bool enable = manual_enable_.load();
+    tasks.push_back(make_shared<WalkTask>(x, y, d, enable));
+    return tasks;
+}
+
+void Player::start_manual_control()
+{
+    if (manual_thread_running_)
+        return;
+
+    if (isatty(STDIN_FILENO))
+    {
+        if (tcgetattr(STDIN_FILENO, &terminal_old_) == 0)
+        {
+            struct termios raw = terminal_old_;
+            raw.c_lflag &= static_cast<tcflag_t>(~(ICANON | ECHO));
+            raw.c_cc[VMIN] = 0;
+            raw.c_cc[VTIME] = 0;
+            if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0)
+                terminal_raw_ = true;
+        }
+    }
+
+    manual_thread_running_ = true;
+    manual_thread_ = std::thread(&Player::manual_control_loop, this);
+    manual_last_input_ms_ = now_ms();
+    manual_last_kick_ms_ = now_ms() - manual_kick_cooldown_ms_;
+    LOG(LOG_INFO) << "manual control enabled: wasdqe + k + space" << endll;
+}
+
+void Player::stop_manual_control()
+{
+    manual_thread_running_ = false;
+
+    if (terminal_raw_)
+    {
+        tcsetattr(STDIN_FILENO, TCSANOW, &terminal_old_);
+        terminal_raw_ = false;
+    }
+
+    if (manual_thread_.joinable())
+        manual_thread_.join();
+}
+
+void Player::manual_control_loop()
+{
+    while (manual_thread_running_)
+    {
+        fd_set readfds;
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds);
+
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 50000;
+
+        int ret = select(STDIN_FILENO + 1, &readfds, nullptr, nullptr, &tv);
+        if (ret > 0 && FD_ISSET(STDIN_FILENO, &readfds))
+        {
+            char key = 0;
+            ssize_t size = read(STDIN_FILENO, &key, 1);
+            if (size == 1)
+            {
+                manual_last_input_ms_ = now_ms();
+                apply_manual_key(static_cast<char>(tolower(static_cast<unsigned char>(key))));
+            }
+        }
+
+        if (manual_enable_.load())
+        {
+            const long long elapsed = now_ms() - manual_last_input_ms_.load();
+            if (elapsed > manual_input_timeout_ms_)
+            {
+                manual_x_ = 0.0f;
+                manual_y_ = 0.0f;
+                manual_d_ = 0.0f;
+                manual_enable_ = false;
+            }
+        }
+    }
+}
+
+void Player::apply_manual_key(char key)
+{
+    const float prev_x = manual_x_.load();
+
+    switch (key)
+    {
+        case 'w':
+            if (prev_x < 0.0f)
+            {
+                manual_y_ = 0.0f;
+                manual_d_ = 0.0f;
+            }
+            manual_x_ = manual_forward_step_;
+            manual_y_ = 0.0f;
+            manual_d_ = 0.0f;
+            manual_enable_ = true;
+            break;
+        case 's':
+            if (prev_x > 0.0f)
+            {
+                manual_y_ = 0.0f;
+                manual_d_ = 0.0f;
+            }
+            manual_x_ = manual_backward_step_;
+            manual_y_ = 0.0f;
+            manual_d_ = 0.0f;
+            manual_enable_ = true;
+            break;
+        case 'a':
+            manual_x_ = 0.0f;
+            manual_y_ = manual_side_step_;
+            manual_d_ = 0.0f;
+            manual_enable_ = true;
+            break;
+        case 'd':
+            manual_x_ = 0.0f;
+            manual_y_ = -manual_side_step_;
+            manual_d_ = 0.0f;
+            manual_enable_ = true;
+            break;
+        case 'q':
+            manual_x_ = 0.0f;
+            manual_y_ = 0.0f;
+            manual_d_ = manual_turn_step_;
+            manual_enable_ = true;
+            break;
+        case 'e':
+            manual_x_ = 0.0f;
+            manual_y_ = 0.0f;
+            manual_d_ = -manual_turn_step_;
+            manual_enable_ = true;
+            break;
+        case 'k':
+            manual_kick_request_ = true;
+            break;
+        case ' ':
+            manual_x_ = 0.0f;
+            manual_y_ = 0.0f;
+            manual_d_ = 0.0f;
+            manual_enable_ = false;
+            break;
+        default:
+            break;
+    }
 }

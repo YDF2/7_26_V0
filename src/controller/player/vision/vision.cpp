@@ -55,6 +55,10 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     yuyv_size_ = 0;
     sized_size_ = 0;
     rgbf_size_ = 0;
+    proc_w_ = w_;
+    proc_h_ = h_;
+    ori_capacity_size_ = 0;
+    yuyv_capacity_size_ = 0;
 
     parser::parse(CONF->get_config_value<string>(CONF->player() + ".camera_info_file"), camera_infos_);
     parser::parse(CONF->get_config_value<string>(CONF->player() + ".camera_params_file"), params_);
@@ -209,6 +213,8 @@ void Vision::run()
             head_yaw = head_yaw_;
             head_pitch = head_pitch_;
         }
+        const int proc_w = proc_w_;
+        const int proc_h = proc_h_;
         frame_mtx_.unlock();
 
         // double t1 = clock();
@@ -237,11 +243,11 @@ void Vision::run()
         if (use_center_crop)
         {
             cudaCropCenter(dev_bgr_, camera_w_, camera_h_, dev_crop_, crop_w_, crop_h_, crop_x_, crop_y_);
-            cudaResizePacked(dev_crop_, crop_w_, crop_h_, dev_ori_, w_, h_);
+            cudaResizePacked(dev_crop_, crop_w_, crop_h_, dev_ori_, proc_w, proc_h);
         }
         else
         {
-            cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, w_, h_);
+            cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, proc_w, proc_h);
         }
         if (use_zed_)
         {
@@ -249,22 +255,22 @@ void Vision::run()
             imgproc::cudaUndistort(dev_ori_, dev_undis_, 
                                    params_.fx, params_.fy, params_.cx, params_.cy,
                                    params_.k1, params_.k2, 0.0f, params_.p1, params_.p2,
-                                   w_, h_, 3);
+                                   proc_w, proc_h, 3);
         }
         else
         {
             // V4L2 YUYV: keep legacy behavior (no undistort).
-            cudaMemcpy(dev_undis_, dev_ori_, ori_size_, cudaMemcpyDeviceToDevice);
+            cudaMemcpy(dev_undis_, dev_ori_, proc_w * proc_h * 3, cudaMemcpyDeviceToDevice);
         }
         // cudaBGR2YUV422(dev_undis_, dev_yuyv_, w_, h_);
         const int in_w = detector_.input_w();
         const int in_h = detector_.input_h();
-        cudaResizeLetterbox(dev_undis_, w_, h_, dev_sized_, in_w, in_h,
+        cudaResizeLetterbox(dev_undis_, proc_w, proc_h, dev_sized_, in_w, in_h,
                     letterbox_scale_, letterbox_pad_x_, letterbox_pad_y_);
         cudaBGR2RGBfp(dev_sized_, dev_rgbfp_, in_w, in_h); // 转为浮点型供神经网络使用
 
         if (!detector_.detect(dev_rgbfp_,
-                               w_, h_,
+                               proc_w, proc_h,
                                ball_dets_,
                                post_dets_,
                                ball_prob_,
@@ -296,8 +302,8 @@ void Vision::run()
                 Vector2d ball_pos = camera2self(odo_res, head_yaw);
                 cant_see_ball_count_ = 0;
                 Vector2d temp_ball = p.global + rotation_mat_2d(-p.dir) * ball_pos;
-                float alpha = (ball_pix.x() - params_.cx) / (float)w_;
-                float beta = (ball_pix.y() - params_.cy) / (float)h_;
+                float alpha = (ball_pix.x() - params_.cx) / (float)proc_w;
+                float beta = (ball_pix.y() - params_.cy) / (float)proc_h;
                 WM->set_ball_pos(temp_ball, ball_pos, ball_pix, alpha, beta, true);
             }
             else
@@ -379,17 +385,17 @@ void Vision::run()
 
         if (OPTS->use_debug())
         {
-            Mat bgr(h_, w_, CV_8UC3);
+            Mat bgr(proc_h, proc_w, CV_8UC3);
 
             if (OPTS->image_record())
             {
-                err = cudaMemcpy(bgr.data, dev_undis_, ori_size_, cudaMemcpyDeviceToHost);
+                err = cudaMemcpy(bgr.data, dev_undis_, proc_w * proc_h * 3, cudaMemcpyDeviceToHost);
                 check_error(err);
                 send_image(bgr);
                 is_busy_ = false;
                 return;
             }
-            err = cudaMemcpy(bgr.data, dev_undis_, ori_size_, cudaMemcpyDeviceToHost);
+            err = cudaMemcpy(bgr.data, dev_undis_, proc_w * proc_h * 3, cudaMemcpyDeviceToHost);
             check_error(err);
             if (img_sd_type_ == IMAGE_SEND_ORIGIN)
             {
@@ -508,8 +514,10 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             src_size_ = camera_size_;
             bgr_size_ = camera_w_ * camera_h_ * 3;
             use_zed_ = sptr->use_zed();
+            proc_w_ = use_zed_ ? 640 : w_;
+            proc_h_ = use_zed_ ? 640 : h_;
 
-            const float target_aspect = static_cast<float>(w_) / static_cast<float>(h_);
+            const float target_aspect = static_cast<float>(proc_w_) / static_cast<float>(proc_h_);
             const float src_aspect = static_cast<float>(camera_w_) / static_cast<float>(camera_h_);
             crop_w_ = camera_w_;
             crop_h_ = camera_h_;
@@ -546,6 +554,7 @@ void Vision::updata(const pub_ptr &pub, const int &type)
 
             LOG(LOG_INFO) << "Vision: camera buffer reinit, src_size=" << src_size_
                           << " bgr_size=" << bgr_size_
+                          << " proc=" << proc_w_ << "x" << proc_h_
                           << " crop=" << crop_w_ << "x" << crop_h_
                           << " use_zed=" << use_zed_ << endll;
         }
@@ -555,6 +564,8 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             camera_h_ = new_camera_h;
             camera_size_ = new_camera_size;
             use_zed_ = sptr->use_zed();
+            proc_w_ = use_zed_ ? 640 : w_;
+            proc_h_ = use_zed_ ? 640 : h_;
         }
 
         unsigned char *src_ptr = sptr->buffer();
@@ -604,6 +615,7 @@ void Vision::updata(const pub_ptr &pub, const int &type)
                               << " fy=" << params_.fy
                               << " cx=" << params_.cx
                               << " cy=" << params_.cy
+                              << " proc=" << proc_w_ << "x" << proc_h_
                               << " k1=" << params_.k1
                               << " k2=" << params_.k2
                               << " p1=" << params_.p1
@@ -675,17 +687,19 @@ bool Vision::start()
 
     ori_size_ = w_ * h_ * 3;
     yuyv_size_ = w_ * h_ * 2;
+    ori_capacity_size_ = std::max(w_, 640) * std::max(h_, 640) * 3;
+    yuyv_capacity_size_ = std::max(w_, 640) * std::max(h_, 640) * 2;
     const int in_w = detector_.input_w();
     const int in_h = detector_.input_h();
     sized_size_ = in_w * in_h * 3;
     rgbf_size_ = in_w * in_h * 3 * sizeof(float);
 
     cudaError_t err;
-    err = cudaMalloc((void **)&dev_ori_, ori_size_);
+    err = cudaMalloc((void **)&dev_ori_, ori_capacity_size_);
     check_error(err);
-    err = cudaMalloc((void **)&dev_undis_, ori_size_);
+    err = cudaMalloc((void **)&dev_undis_, ori_capacity_size_);
     check_error(err);
-    err = cudaMalloc((void **)&dev_yuyv_, yuyv_size_);
+    err = cudaMalloc((void **)&dev_yuyv_, yuyv_capacity_size_);
     check_error(err);
     err = cudaMalloc((void **)&dev_sized_, sized_size_);
     check_error(err);

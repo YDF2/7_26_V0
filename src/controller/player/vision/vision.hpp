@@ -101,6 +101,10 @@ private:
     int yuyv_size_;
     int sized_size_;
     int rgbf_size_;
+    int proc_w_;
+    int proc_h_;
+    int ori_capacity_size_;
+    int yuyv_capacity_size_;
     float letterbox_scale_;
     int letterbox_pad_x_;
     int letterbox_pad_y_;

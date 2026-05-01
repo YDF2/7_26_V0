@@ -26,6 +26,8 @@ Options::Options(): opts_desc_("  Options description")
      "Kick mode\n0. Normal kick.\n1. Penalty kick")
     ("mote,m", value<bool>()->default_value(false),
      "If you want to use remote.")
+    ("controlflag,f", value<int>()->default_value(0),
+     "Control flag for manual keyboard control. 0:auto, 1:keyboard remote")
     ("image,i", value<bool>()->default_value(false),
      "If you want to record image.");
 }
@@ -45,6 +47,7 @@ bool Options::init(int argc, char **argv)
         use_gc_ = arg<bool>("gamectrl");
         image_record_ = arg<bool>("image");
         kick_mode_ = arg<int>("kick");
+        control_flag_ = arg<int>("controlflag");
 
         if (var_map_.count("help"))
         {

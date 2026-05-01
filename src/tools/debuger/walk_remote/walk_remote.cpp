@@ -174,3 +174,7 @@ void WalkRemote::closeEvent(QCloseEvent *event)
     client_.stop();
     emit closed();
 }
+
+
+
+
