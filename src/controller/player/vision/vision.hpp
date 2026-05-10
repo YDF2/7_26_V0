@@ -21,6 +21,7 @@
 #include "sensor/motor.hpp"
 #include "localization/localization.h"
 #include "trt_detector.hpp"
+#include "ball_ekf.hpp"
 
 class Vision: public Timer, public Subscriber, public Singleton<Vision>
 {
@@ -82,6 +83,11 @@ private:
     float last_alpha_;
     float last_beta_;
     bool ball_visible_;
+
+    BallEKF ball_ekf_;
+    Imu::imu_data prev_imu_;
+    float imu_shake_pitch_rate_;
+    float imu_shake_roll_rate_;
 
     bool is_busy_;
     bool zed_cam_param_applied_;

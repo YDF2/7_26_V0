@@ -1,6 +1,7 @@
 add_library(vision
         vision.cpp
-        trt_detector.cpp)
+        trt_detector.cpp
+        ball_ekf.cpp)
 
 target_link_libraries(vision
         opencv_core

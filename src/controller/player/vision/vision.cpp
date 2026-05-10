@@ -28,6 +28,9 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     last_alpha_ = 0.0f;
     last_beta_ = 0.0f;
     ball_visible_ = false;
+    prev_imu_ = Imu::imu_data{};
+    imu_shake_pitch_rate_ = 0;
+    imu_shake_roll_rate_ = 0;
     is_busy_ = false;
     zed_cam_param_applied_ = false;
     use_zed_ = false;
@@ -287,24 +290,43 @@ void Vision::run()
         // double t2 = clock();
         // LOG(LOG_INFO)<<(t2-t1)/CLOCKS_PER_SEC<<endll;
 
+        // Update EKF adaptive R with latest IMU shake rates
+        ball_ekf_.set_imu_shake(imu_shake_pitch_rate_, imu_shake_roll_rate_);
+
+        // Always predict
+        ball_ekf_.predict(period_ms_ / 1000.0f);
+
+        // Feed detection into EKF if available
         if (!ball_dets_.empty())
         {
             Vector2i ball_pix(ball_dets_[0].x + ball_dets_[0].w / 2, ball_dets_[0].y + ball_dets_[0].h);
-            last_alpha_ = (ball_pix.x() - params_.cx) / (float)w_;
-            last_beta_  = (ball_pix.y() - params_.cy) / (float)h_;
-            ball_visible_ = true;
+            float raw_alpha = (ball_pix.x() - params_.cx) / (float)w_;
+            float raw_beta  = (ball_pix.y() - params_.cy) / (float)h_;
+            ball_ekf_.update(raw_alpha, raw_beta);
         }
-        else
-        {
-            ball_visible_ = false;
-        }
+
+        // Output: always from EKF
+        last_alpha_ = ball_ekf_.state().alpha;
+        last_beta_  = ball_ekf_.state().beta;
+        ball_visible_ = ball_ekf_.is_tracking();
 
         if (OPTS->use_robot())
         {
             self_block p = WM->self();
-            if (!ball_dets_.empty())
+            if (ball_ekf_.is_tracking())
             {
-                Vector2i ball_pix(ball_dets_[0].x + ball_dets_[0].w / 2, ball_dets_[0].y + ball_dets_[0].h);
+                Vector2i ball_pix;
+                if (!ball_dets_.empty())
+                {
+                    ball_pix = Vector2i(ball_dets_[0].x + ball_dets_[0].w / 2,
+                                        ball_dets_[0].y + ball_dets_[0].h);
+                }
+                else
+                {
+                    float px = last_alpha_ * w_ + params_.cx;
+                    float py = last_beta_  * h_ + params_.cy;
+                    ball_pix = Vector2i(px, py);
+                }
                 Vector2d odo_res = odometry(ball_pix, camera_matrix);
                 Vector2d ball_pos = camera2self(odo_res, head_yaw);
                 cant_see_ball_count_ = 0;
@@ -672,8 +694,19 @@ void Vision::updata(const pub_ptr &pub, const int &type)
     if (type == Sensor::SENSOR_IMU)
     {
         shared_ptr<Imu> sptr = dynamic_pointer_cast<Imu>(pub);
+        Imu::imu_data current = sptr->data();
+        if (prev_imu_.timestamp != 0)
+        {
+            float dt_imu = (current.timestamp - prev_imu_.timestamp) / 1000.0f;
+            if (dt_imu > 0 && dt_imu < 1.0f)
+            {
+                imu_shake_pitch_rate_ = fabs(current.pitch - prev_imu_.pitch) / dt_imu;
+                imu_shake_roll_rate_  = fabs(current.roll  - prev_imu_.roll)  / dt_imu;
+            }
+        }
+        prev_imu_ = current;
         imu_mtx_.lock();
-        imu_datas_.push(sptr->data());
+        imu_datas_.push(current);
         if (imu_datas_.size() > 4)
             imu_datas_.pop();
         int spf = WM->support_foot();
@@ -742,6 +775,7 @@ bool Vision::start()
     check_error(err);
 
     is_alive_ = true;
+    ball_ekf_.init();
     start_timer();
     return true;
 }
