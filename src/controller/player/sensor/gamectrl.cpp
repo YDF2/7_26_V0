@@ -35,8 +35,23 @@ void GameCtrl::receive()
             recv_header.append(data_.header, sizeof(RoboCupGameControlData::header));
             if (recv_header == GAMECONTROLLER_STRUCT_HEADER)
             {
-                //LOG(LOG_INFO) << (int)data_.state<<endll;
+                static int recv_count = 0;
+                ++recv_count;
+                if (recv_count == 1 || recv_count % 20 == 0)
+                {
+                    LOG(LOG_WARN) << "[GC RECV #" << recv_count << "]"
+                                  << " ver=" << (int)data_.version
+                                  << " state=" << (int)data_.state
+                                  << " kicking=" << (int)data_.kickingTeam
+                                  << " secondT=" << (int)data_.secondaryTime
+                                  << " bytes=" << bytes_recvd
+                                  << endll;
+                }
                 notify(SENSOR_GC);
+            }
+            else
+            {
+                LOG(LOG_WARN) << "[GC RECV] header mismatch: got [" << recv_header << "] expected [" << GAMECONTROLLER_STRUCT_HEADER << "]" << endll;
             }
         }
 

@@ -52,7 +52,8 @@ enum image_send_type
     IMAGE_SEND_RESULT = 1,
     IMAGE_SEND_RECT=2,
     IMAGE_SEND_POINT=3,
-    IMAGE_SEND_DIS=4
+    IMAGE_SEND_DIS=4,
+    IMAGE_SEND_BALL=5
 };
 
 struct remote_data

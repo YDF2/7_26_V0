@@ -31,6 +31,7 @@ protected:
 private:
     ImageLabel *imageLab;
     QLabel *yawLab, *pitchLab, *netLab;
+    QLabel *alphaLab, *betaLab;
     QSlider *pitchSlider, *yawSlider;
     QComboBox *sendBox;
     QComboBox *imageBox;

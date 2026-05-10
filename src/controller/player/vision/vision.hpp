@@ -79,6 +79,10 @@ private:
     int cant_see_ball_count_;
     int can_see_post_count_;
 
+    float last_alpha_;
+    float last_beta_;
+    bool ball_visible_;
+
     bool is_busy_;
     bool zed_cam_param_applied_;
     image_send_type img_sd_type_;
@@ -87,6 +91,7 @@ private:
 
     unsigned char *dev_src_;
     unsigned char *dev_bgr_;
+    unsigned char *dev_crop_;
     unsigned char *dev_ori_;
     unsigned char *dev_sized_;
     unsigned char *dev_undis_;
@@ -95,6 +100,7 @@ private:
     float *dev_rgbfp_;
     int src_size_;
     int bgr_size_;
+    int crop_size_;
     int ori_size_;
     int yuyv_size_;
     int sized_size_;
@@ -102,6 +108,10 @@ private:
     float letterbox_scale_;
     int letterbox_pad_x_;
     int letterbox_pad_y_;
+    int crop_w_;
+    int crop_h_;
+    int crop_x_;
+    int crop_y_;
 
     cv::Mat camK;
 	cv::Mat newCamK;

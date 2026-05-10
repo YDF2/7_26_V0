@@ -287,6 +287,22 @@ __global__ void letterbox_resize_u8_kernal(unsigned char *in, int iw, int ih,
     }
 }
 
+__global__ void crop_center_u8_kernal(unsigned char *in, int iw, int ih,
+                                      unsigned char *out, int ow, int oh,
+                                      int crop_x, int crop_y)
+{
+    int x = blockIdx.x;
+    int y = threadIdx.x;
+    const int src_x = x + crop_x;
+    const int src_y = y + crop_y;
+
+    const int out_offset = (y * ow + x) * 3;
+    const int in_offset = (src_y * iw + src_x) * 3;
+    out[out_offset + 0] = in[in_offset + 0];
+    out[out_offset + 1] = in[in_offset + 1];
+    out[out_offset + 2] = in[in_offset + 2];
+}
+
 __global__ void build_map_kernal(float *pCamK, float *pDistort, float *pInvNewCamK, float *pMapx, float *pMapy, int outImgW, int outImgH)
 {
 	const int tidx = blockDim.x*blockIdx.x + threadIdx.x;
@@ -466,6 +482,18 @@ namespace imgproc
     void cudaResizePacked(unsigned char *in, int iw, int ih, unsigned char *sized, int ow, int oh)
     {
         resize_packed_kernal<<<ow, oh>>>(in, iw, ih, sized, ow, oh);
+    }
+
+    void cudaCropCenter(unsigned char *in, int iw, int ih, unsigned char *out, int ow, int oh,
+                        int &crop_x, int &crop_y)
+    {
+        crop_x = (iw - ow) / 2;
+        crop_y = (ih - oh) / 2;
+        if (crop_x < 0)
+            crop_x = 0;
+        if (crop_y < 0)
+            crop_y = 0;
+        crop_center_u8_kernal<<<ow, oh>>>(in, iw, ih, out, ow, oh, crop_x, crop_y);
     }
 
     void cudaResizeLetterbox(unsigned char *in, int iw, int ih, unsigned char *sized, int ow, int oh,

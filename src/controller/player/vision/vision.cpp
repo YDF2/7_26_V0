@@ -25,6 +25,9 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     p_count_ = 0;
     cant_see_ball_count_ = 0;
     can_see_post_count_ = 0;
+    last_alpha_ = 0.0f;
+    last_beta_ = 0.0f;
+    ball_visible_ = false;
     is_busy_ = false;
     zed_cam_param_applied_ = false;
     use_zed_ = false;
@@ -34,6 +37,7 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     camera_src_ = nullptr;
     dev_src_ = nullptr;
     dev_bgr_ = nullptr;
+    dev_crop_ = nullptr;
     dev_ori_ = nullptr;
     dev_sized_ = nullptr;
     dev_undis_ = nullptr;
@@ -49,6 +53,7 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     camera_size_ = 0;
     src_size_ = 0;
     bgr_size_ = 0;
+    crop_size_ = 0;
     ori_size_ = 0;
     yuyv_size_ = 0;
     sized_size_ = 0;
@@ -102,6 +107,10 @@ Vision::Vision() : Timer(CONF->get_config_value<int>("vision_period"))
     letterbox_scale_ = 1.0f;
     letterbox_pad_x_ = 0;
     letterbox_pad_y_ = 0;
+    crop_w_ = 0;
+    crop_h_ = 0;
+    crop_x_ = 0;
+    crop_y_ = 0;
 }
 
 Vision::~Vision()
@@ -226,7 +235,17 @@ void Vision::run()
             is_busy_ = false;
             return;
         }
-        cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, w_, h_);
+        const bool use_center_crop = use_zed_ && crop_w_ > 0 && crop_h_ > 0 &&
+                                     (crop_w_ < camera_w_ || crop_h_ < camera_h_);
+        if (use_center_crop)
+        {
+            cudaCropCenter(dev_bgr_, camera_w_, camera_h_, dev_crop_, crop_w_, crop_h_, crop_x_, crop_y_);
+            cudaResizePacked(dev_crop_, crop_w_, crop_h_, dev_ori_, w_, h_);
+        }
+        else
+        {
+            cudaResizePacked(dev_bgr_, camera_w_, camera_h_, dev_ori_, w_, h_);
+        }
         if (use_zed_)
         {
             // ZED path: now enable direct undistortion using ZED camera parameters
@@ -268,21 +287,29 @@ void Vision::run()
         // double t2 = clock();
         // LOG(LOG_INFO)<<(t2-t1)/CLOCKS_PER_SEC<<endll;
 
+        if (!ball_dets_.empty())
+        {
+            Vector2i ball_pix(ball_dets_[0].x + ball_dets_[0].w / 2, ball_dets_[0].y + ball_dets_[0].h);
+            last_alpha_ = (ball_pix.x() - params_.cx) / (float)w_;
+            last_beta_  = (ball_pix.y() - params_.cy) / (float)h_;
+            ball_visible_ = true;
+        }
+        else
+        {
+            ball_visible_ = false;
+        }
+
         if (OPTS->use_robot())
         {
             self_block p = WM->self();
             if (!ball_dets_.empty())
             {
                 Vector2i ball_pix(ball_dets_[0].x + ball_dets_[0].w / 2, ball_dets_[0].y + ball_dets_[0].h);
-                // ball_pix = undistored(ball_pix);
                 Vector2d odo_res = odometry(ball_pix, camera_matrix);
-                // LOG(LOG_INFO)<<odo_res.norm()<<endll;
                 Vector2d ball_pos = camera2self(odo_res, head_yaw);
                 cant_see_ball_count_ = 0;
                 Vector2d temp_ball = p.global + rotation_mat_2d(-p.dir) * ball_pos;
-                float alpha = (ball_pix.x() - params_.cx) / (float)w_;
-                float beta = (ball_pix.y() - params_.cy) / (float)h_;
-                WM->set_ball_pos(temp_ball, ball_pos, ball_pix, alpha, beta, true);
+                WM->set_ball_pos(temp_ball, ball_pos, ball_pix, last_alpha_, last_beta_, true);
             }
             else
             {
@@ -363,6 +390,22 @@ void Vision::run()
 
         if (OPTS->use_debug())
         {
+            // Send alpha/beta to debugger when ball is visible
+            {
+                tcp_command cmd;
+                cmd.type = REMOTE_DATA;
+                cmd.size = 2 * enum_size + 2 * float_size + bool_size;
+                remote_data_type t1 = IMAGE_SEND_TYPE;
+                image_send_type t2 = IMAGE_SEND_BALL;
+                cmd.data.clear();
+                cmd.data.append((char *)&t1, enum_size);
+                cmd.data.append((char *)&t2, enum_size);
+                cmd.data.append((char *)&last_alpha_, float_size);
+                cmd.data.append((char *)&last_beta_, float_size);
+                cmd.data.append((char *)&ball_visible_, bool_size);
+                SERVER->write(cmd);
+            }
+
             Mat bgr(h_, w_, CV_8UC3);
 
             if (OPTS->image_record())
@@ -480,6 +523,11 @@ void Vision::updata(const pub_ptr &pub, const int &type)
                 cudaFree(dev_bgr_);
                 dev_bgr_ = nullptr;
             }
+            if (dev_crop_ != nullptr)
+            {
+                cudaFree(dev_crop_);
+                dev_crop_ = nullptr;
+            }
 
             camera_w_ = new_camera_w;
             camera_h_ = new_camera_h;
@@ -487,6 +535,28 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             src_size_ = camera_size_;
             bgr_size_ = camera_w_ * camera_h_ * 3;
             use_zed_ = sptr->use_zed();
+
+            const float target_aspect = static_cast<float>(w_) / static_cast<float>(h_);
+            const float src_aspect = static_cast<float>(camera_w_) / static_cast<float>(camera_h_);
+            crop_w_ = camera_w_;
+            crop_h_ = camera_h_;
+            if (use_zed_)
+            {
+                if (src_aspect > target_aspect)
+                {
+                    crop_w_ = static_cast<int>(static_cast<float>(camera_h_) * target_aspect + 0.5f);
+                }
+                else if (src_aspect < target_aspect)
+                {
+                    crop_h_ = static_cast<int>(static_cast<float>(camera_w_) / target_aspect + 0.5f);
+                }
+            }
+            if (crop_w_ <= 0 || crop_w_ > camera_w_)
+                crop_w_ = camera_w_;
+            if (crop_h_ <= 0 || crop_h_ > camera_h_)
+                crop_h_ = camera_h_;
+
+            crop_size_ = crop_w_ * crop_h_ * 3;
             camera_src_ = (unsigned char *)malloc(camera_size_);
             if (camera_src_ == nullptr)
             {
@@ -498,9 +568,13 @@ void Vision::updata(const pub_ptr &pub, const int &type)
             check_error(err);
             err = cudaMalloc((void **)&dev_bgr_, bgr_size_);
             check_error(err);
+            err = cudaMalloc((void **)&dev_crop_, crop_size_);
+            check_error(err);
 
             LOG(LOG_INFO) << "Vision: camera buffer reinit, src_size=" << src_size_
-                          << " bgr_size=" << bgr_size_ << " use_zed=" << use_zed_ << endll;
+                          << " bgr_size=" << bgr_size_
+                          << " crop=" << crop_w_ << "x" << crop_h_
+                          << " use_zed=" << use_zed_ << endll;
         }
         else
         {
@@ -684,6 +758,7 @@ void Vision::stop()
         cudaFree(dev_yuyv_);
         cudaFree(dev_src_);
         cudaFree(dev_bgr_);
+        cudaFree(dev_crop_);
         cudaFree(dev_rgbfp_);
         cudaFree(dev_sized_);
 

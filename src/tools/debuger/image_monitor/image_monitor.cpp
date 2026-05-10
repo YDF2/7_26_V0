@@ -83,6 +83,13 @@ ImageMonitor::ImageMonitor()
     statusBar()->addWidget(yawLab);
     statusBar()->addWidget(netLab);
 
+    alphaLab = new QLabel("alpha: --");
+    betaLab  = new QLabel("beta: --");
+    alphaLab->setFixedWidth(140);
+    betaLab->setFixedWidth(130);
+    statusBar()->addWidget(alphaLab);
+    statusBar()->addWidget(betaLab);
+
     net_info = QString::fromStdString(CONF->get_config_value<string>(CONF->player() + ".address"))
                + ":" + QString::number(CONF->get_config_value<int>("net.tcp"));
     setWindowTitle(net_info);
@@ -141,6 +148,24 @@ void ImageMonitor::data_handler(const tcp_command cmd)
                 memcpy(&x, cmd.data.c_str()+2*enum_size, float_size);
                 memcpy(&y, cmd.data.c_str()+2*enum_size+float_size, float_size);
 
+            }
+            else if(t2==IMAGE_SEND_BALL)
+            {
+                float alpha, beta;
+                bool can_see;
+                memcpy(&alpha, cmd.data.c_str()+2*enum_size, float_size);
+                memcpy(&beta,  cmd.data.c_str()+2*enum_size+float_size, float_size);
+                memcpy(&can_see, cmd.data.c_str()+2*enum_size+2*float_size, bool_size);
+                if (can_see)
+                {
+                    alphaLab->setText(QString("alpha: %1").arg(alpha, 0, 'f', 4));
+                    betaLab->setText( QString("beta: %1").arg(beta,  0, 'f', 4));
+                }
+                else
+                {
+                    alphaLab->setText("alpha: --");
+                    betaLab->setText("beta: --");
+                }
             }
         }
     }
