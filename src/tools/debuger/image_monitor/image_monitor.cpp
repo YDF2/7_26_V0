@@ -83,12 +83,30 @@ ImageMonitor::ImageMonitor()
     statusBar()->addWidget(yawLab);
     statusBar()->addWidget(netLab);
 
+    QFont ballFont;
+    ballFont.setPointSize(14);
     alphaLab = new QLabel("alpha: --");
     betaLab  = new QLabel("beta: --");
-    alphaLab->setFixedWidth(140);
-    betaLab->setFixedWidth(130);
+    alphaLab->setFont(ballFont);
+    betaLab->setFont(ballFont);
+    alphaLab->setFixedWidth(160);
+    betaLab->setFixedWidth(150);
     statusBar()->addWidget(alphaLab);
     statusBar()->addWidget(betaLab);
+
+    connect(this, &ImageMonitor::imageReady, this, [this](QImage img) {
+        imageLab->set_image(img);
+    }, Qt::QueuedConnection);
+
+    connect(this, &ImageMonitor::ballInfoReady, this, [this](float a, float b, bool c) {
+        if (c) {
+            alphaLab->setText(QString("alpha: %1").arg(a, 0, 'f', 4));
+            betaLab->setText( QString("beta: %1").arg(b,  0, 'f', 4));
+        } else {
+            alphaLab->setText("alpha: --");
+            betaLab->setText("beta: --");
+        }
+    }, Qt::QueuedConnection);
 
     net_info = QString::fromStdString(CONF->get_config_value<string>(CONF->player() + ".address"))
                + ":" + QString::number(CONF->get_config_value<int>("net.tcp"));
@@ -117,6 +135,8 @@ void ImageMonitor::data_handler(const tcp_command cmd)
         try
         {
             Mat bgr = imdecode(buf, cv::IMREAD_COLOR);
+            if (bgr.empty())
+                return;
             if(save_||(sampleBox->isChecked()&&image_count_++%10==0))
             {
                 imwrite(String(get_time()+".png"), bgr);
@@ -125,7 +145,7 @@ void ImageMonitor::data_handler(const tcp_command cmd)
             Mat dst;
             cvtColor(bgr, dst, COLOR_BGR2RGB);
             QImage dstImage((const unsigned char *)(dst.data), dst.cols, dst.rows, QImage::Format_RGB888);
-            imageLab->set_image(dstImage);
+            emit imageReady(dstImage.copy());  // deep copy before queued emission — Mat data freed after
             bgr.release();
             dst.release();
         }
@@ -136,6 +156,8 @@ void ImageMonitor::data_handler(const tcp_command cmd)
     }
     else if(cmd.type == REMOTE_DATA)
     {
+        if (cmd.size < 2 * enum_size)
+            return;
         remote_data_type t1;
         memcpy(&t1, cmd.data.c_str(), enum_size);
         if(t1==IMAGE_SEND_TYPE)
@@ -151,21 +173,14 @@ void ImageMonitor::data_handler(const tcp_command cmd)
             }
             else if(t2==IMAGE_SEND_BALL)
             {
+                if (cmd.size < 2 * enum_size + 2 * float_size + bool_size)
+                    return;
                 float alpha, beta;
                 bool can_see;
                 memcpy(&alpha, cmd.data.c_str()+2*enum_size, float_size);
                 memcpy(&beta,  cmd.data.c_str()+2*enum_size+float_size, float_size);
                 memcpy(&can_see, cmd.data.c_str()+2*enum_size+2*float_size, bool_size);
-                if (can_see)
-                {
-                    alphaLab->setText(QString("alpha: %1").arg(alpha, 0, 'f', 4));
-                    betaLab->setText( QString("beta: %1").arg(beta,  0, 'f', 4));
-                }
-                else
-                {
-                    alphaLab->setText("alpha: --");
-                    betaLab->setText("beta: --");
-                }
+                emit ballInfoReady(alpha, beta, can_see);
             }
         }
     }

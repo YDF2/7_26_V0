@@ -15,6 +15,7 @@
   - [视觉图像链路一致性核查](#视觉图像链路一致性核查)
   - [视觉推理letterbox最小改造](#视觉推理letterbox最小改造)
   - [视觉系统与ZED官方实现对标及去畸变集成](#视觉系统与zed官方实现对标及去畸变集成)
+  - [HD720采集与4:3中心裁剪下采样](#hd720采集与43中心裁剪下采样)
 - [未完成工作](#未完成工作)
   - [TensorRT 10完整实施](#tensorrt-10完整实施)
   - [深度信息融合](#深度信息融合)
@@ -36,10 +37,10 @@
 4. **快速接入指南**：产出精简的接入文档和代码改造日志
 
 #### 相关文档
-- [ZED-Mini单目接入快速指南.md](file:///home/seurobot2/Downloads/7_26_V0/docs/ZED-Mini单目接入快速指南.md) - 最小可用流程说明
-- [2026-03-23_ZED-Mini单目接入代码改造日志.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_ZED-Mini单目接入代码改造日志.md) - 具体代码改动记录
-- [2026-03-23_ZED-Mini单目接入指南_工作日志.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_ZED-Mini单目接入指南_工作日志.md) - 文档产出说明
-- [机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md) - 完整技术方案
+- [ZED-Mini单目接入快速指南.md](Camera/ZED-Mini单目接入快速指南.md) - 最小可用流程说明
+- [2026-03-23_ZED-Mini单目接入代码改造日志.md](Camera/2026-03-23_ZED-Mini单目接入代码改造日志.md) - 具体代码改动记录
+- [2026-03-23_ZED-Mini单目接入指南_工作日志.md](Camera/2026-03-23_ZED-Mini单目接入指南_工作日志.md) - 文档产出说明
+- [机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md](Camera/机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md) - 完整技术方案
 
 #### 状态说明
 ✅ **已完成** - 代码改造完成，编译通过，具备运行条件
@@ -57,7 +58,7 @@
 4. **安全性增强**：补充Vision输入尺寸一致性检查与V4L2缓冲生命周期修正
 
 #### 相关文档
-- [2026-03-27_删除MV并切换ZED优先实施记录.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-27_删除MV并切换ZED优先实施记录.md) - 本轮代码改造、验证结论与风险说明
+- [2026-03-27_删除MV并切换ZED优先实施记录.md](Vision/2026-03-27_删除MV并切换ZED优先实施记录.md) - 本轮代码改造、验证结论与风险说明
 
 #### 状态说明
 ✅ **已完成** - MV依赖已移除，摄像头链路已切换为 ZED-mini 优先 + V4L2 回退
@@ -75,9 +76,9 @@
 4. **一致性检查**：识别并标记潜在风险点
 
 #### 相关文档
-- [2026-03-23_视觉检测逻辑与类别ID一致性检查.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_视觉检测逻辑与类别ID一致性检查.md) - 完整检查报告
-- [2026-03-23_auto_marker类别映射修正与使用说明.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_auto_marker类别映射修正与使用说明.md) - 工具修改说明
-- [2026-03-23_auto_marker与Qt无框关联分析及代码补充.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_auto_marker与Qt无框关联分析及代码补充.md) - 关联性分析
+- [2026-03-23_视觉检测逻辑与类别ID一致性检查.md](Vision/2026-03-23_视觉检测逻辑与类别ID一致性检查.md) - 完整检查报告
+- [2026-03-23_auto_marker类别映射修正与使用说明.md](Tools/2026-03-23_auto_marker类别映射修正与使用说明.md) - 工具修改说明
+- [2026-03-23_auto_marker与Qt无框关联分析及代码补充.md](Qt/2026-03-23_auto_marker与Qt无框关联分析及代码补充.md) - 关联性分析
 
 #### 状态说明
 ✅ **已完成** - 类别映射已统一，工具已升级
@@ -95,9 +96,9 @@
 4. **调试方案完善**：制定双通道调试架构（主业务流 + 原始流诊断）
 
 #### 相关文档
-- [2026-03-23_x86_debuger_Qt黑屏原因分析与改进方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_x86_debuger_Qt黑屏原因分析与改进方案.md) - 完整问题分析与改进方案
-- [2026-03-23_阶段A最小修复_ZED跳过去畸变实施记录.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_阶段A最小修复_ZED跳过去畸变实施记录.md) - 代码实施记录
-- [2026-03-23_ZED_Streaming与Qt调试方案完善日志.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_ZED_Streaming与Qt调试方案完善日志.md) - Streaming方案分析
+- [2026-03-23_x86_debuger_Qt黑屏原因分析与改进方案.md](Qt/2026-03-23_x86_debuger_Qt黑屏原因分析与改进方案.md) - 完整问题分析与改进方案
+- [2026-03-23_阶段A最小修复_ZED跳过去畸变实施记录.md](Vision/2026-03-23_阶段A最小修复_ZED跳过去畸变实施记录.md) - 代码实施记录
+- [2026-03-23_ZED_Streaming与Qt调试方案完善日志.md](Qt/2026-03-23_ZED_Streaming与Qt调试方案完善日志.md) - Streaming方案分析
 
 #### 状态说明
 ✅ **已完成** - 阶段A修复已实施，画面可见性已恢复
@@ -115,7 +116,7 @@
 4. **构建验证**：完成编译检查，修复潜在问题
 
 #### 相关文档
-- [2026-03-23_auto_marker_trt10_upgrade_log.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_auto_marker_trt10_upgrade_log.md) - 升级变更记录
+- [2026-03-23_auto_marker_trt10_upgrade_log.md](Tools/2026-03-23_auto_marker_trt10_upgrade_log.md) - 升级变更记录
 
 #### 状态说明
 ✅ **已完成** - 工具已升级，构建通过
@@ -134,9 +135,9 @@
 5. **预处理差异详解**：说明YOLOv3和YOLOv8在letterbox、坐标还原等方面的差异
 
 #### 相关文档
-- [YOLOv8_ONNX_迁移方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/YOLOv8_ONNX_迁移方案.md) - 初步迁移方案
-- [YOLOv8_TensorRT_迁移方案_完整版.md](file:///home/seurobot2/Downloads/7_26_V0/docs/YOLOv8_TensorRT_迁移方案_完整版.md) - 完整迁移方案（包含详细代码）
-- [TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md) - TRT10专项实施方案
+- [YOLOv8_ONNX_迁移方案.md](Migration/YOLOv8_ONNX_迁移方案.md) - 初步迁移方案
+- [YOLOv8_TensorRT_迁移方案_完整版.md](Migration/YOLOv8_TensorRT_迁移方案_完整版.md) - 完整迁移方案（包含详细代码）
+- [TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md](Migration/TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md) - TRT10专项实施方案
 
 #### 状态说明
 ✅ **方案设计完成** - 完整的技术方案已产出，待实施
@@ -153,7 +154,7 @@
 3. **尺寸匹配判定**：推理尺寸由 engine 输入shape决定，不由 image.width/height 单独决定
 
 #### 相关文档
-- [2026-03-24_视觉debug图与TensorRT输入一致性核查.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-24_视觉debug图与TensorRT输入一致性核查.md) - 图像链路一致性与640x480匹配性结论
+- [2026-03-24_视觉debug图与TensorRT输入一致性核查.md](Vision/2026-03-24_视觉debug图与TensorRT输入一致性核查.md) - 图像链路一致性与640x480匹配性结论
 
 #### 状态说明
 ✅ **已完成** - 已形成代码级证据与结论
@@ -170,7 +171,7 @@
 3. **边界稳健性**：输出框统一 clamp 到原图范围，避免越界坐标传播
 
 #### 相关文档
-- [2026-03-24_视觉推理letterbox对齐最小改造实施记录.md](file:///home/ydf/Robocup/7_26_V0/docs/2026-03-24_视觉推理letterbox对齐最小改造实施记录.md) - 本轮代码改造与验证记录
+- [2026-03-24_视觉推理letterbox对齐最小改造实施记录.md](Vision/2026-03-24_视觉推理letterbox对齐最小改造实施记录.md) - 本轮代码改造与验证记录
 
 #### 状态说明
 ✅ **已完成** - 最小可用改造已落地，待目标设备完整回归
@@ -196,10 +197,28 @@
 - ✅ 三路隔离：MV/ZED/V4L2图像处理逻辑完全独立，易于扩展与维护
 
 #### 相关文档
-- [2026-03-24_视觉系统与ZED官方实现对标及去畸变集成记录.md](2026-03-24_视觉系统与ZED官方实现对标及去畸变集成记录.md) - 完整技术实施与决策记录
+- [2026-03-24_视觉系统与ZED官方实现对标及去畸变集成记录.md](Vision/2026-03-24_视觉系统与ZED官方实现对标及去畸变集成记录.md) - 完整技术实施与决策记录
 
 #### 状态说明
 ✅ **已完成** - 代码改造完成，编译通过（P1+P2）| 🔵 待验证（运行时效果）
+
+---
+
+### HD720采集与4:3中心裁剪下采样
+
+#### 工作描述
+为提升图像清晰度并避免 16:9 到 4:3 的直接拉伸形变，完成“HD720采集 + 4:3中心裁剪 + 640x480下采样”的链路改造：
+
+1. **采集分辨率提升**：ZED 初始化改为 HD720（1280x720）
+2. **几何链路优化**：在 Vision CUDA 链路中新增中心裁剪节点，先裁剪为 4:3 再下采样到 640x480
+3. **内参映射修正**：标定参数按“中心裁剪 + 缩放”映射到最终尺寸，保持几何一致性
+4. **可观测性增强**：启动日志新增 capture/target/crop 字段，便于快速诊断
+
+#### 相关文档
+- [2026-04-14_HD720采集_4比3中心裁剪_640x480下采样实施记录.md](Vision/2026-04-14_HD720采集_4比3中心裁剪_640x480下采样实施记录.md) - 本轮代码改造、方案取舍与验证要点
+
+#### 状态说明
+✅ **已完成** - 核心代码改造完成，待实机回归验证清晰度与几何稳定性
 
 ---
 
@@ -222,8 +241,8 @@
 - **API兼容性**：需确保完全使用TensorRT 10 name-based API，避免使用deprecated的enqueueV2
 
 #### 相关文档
-- [YOLOv8_TensorRT_迁移方案_完整版.md](file:///home/seurobot2/Downloads/7_26_V0/docs/YOLOv8_TensorRT_迁移方案_完整版.md) - 完整实施方案
-- [TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md) - TRT10实施规范
+- [YOLOv8_TensorRT_迁移方案_完整版.md](Migration/YOLOv8_TensorRT_迁移方案_完整版.md) - 完整实施方案
+- [TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md](Migration/TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md) - TRT10实施规范
 
 #### 状态说明
 🔄 **待实施** - 方案已完整设计，代码实施待进行
@@ -246,7 +265,7 @@
 - **算力开销控制**：深度计算算力开销较高，需降分辨率或限制深度范围
 
 #### 相关文档
-- [机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md) - 深度融合方案设计
+- [机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md](Camera/机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md) - 深度融合方案设计
 
 #### 状态说明
 🔄 **待实施** - 单目稳定后进行
@@ -269,7 +288,7 @@
 - **参数标定**：需完成多光照和高动态场景参数标定
 
 #### 相关文档
-- [机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md) - 性能优化建议
+- [机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md](Camera/机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md) - 性能优化建议
 
 #### 状态说明
 🔄 **待实施** - 功能稳定后进行
@@ -279,33 +298,37 @@
 ## 技术文档索引
 
 ### 系统架构与设计
-- [机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md) - 完整的摄像头技术文档和ZED-Mini替换方案，包含架构分析、数据流说明、API接口、迁移路线图
+- [机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md](Camera/机器人视觉系统摄像头技术文档与ZED-Mini替换方案.md) - 完整的摄像头技术文档和ZED-Mini替换方案，包含架构分析、数据流说明、API接口、迁移路线图
 
 ### 迁移方案
-- [YOLOv8_ONNX_迁移方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/YOLOv8_ONNX_迁移方案.md) - YOLOv3到YOLOv8 ONNX的初步迁移方案
-- [YOLOv8_TensorRT_迁移方案_完整版.md](file:///home/seurobot2/Downloads/7_26_V0/docs/YOLOv8_TensorRT_迁移方案_完整版.md) - YOLOv8 TensorRT完整迁移方案，包含详细代码实现
-- [TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md) - 针对TensorRT 10的专项实施方案，强调FP16 Only和彻底去Darknet
+- [YOLOv8_ONNX_迁移方案.md](Migration/YOLOv8_ONNX_迁移方案.md) - YOLOv3到YOLOv8 ONNX的初步迁移方案
+- [YOLOv8_TensorRT_迁移方案_完整版.md](Migration/YOLOv8_TensorRT_迁移方案_完整版.md) - YOLOv8 TensorRT完整迁移方案，包含详细代码实现
+- [TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md](Migration/TX2_视觉系统迁移至OrinNX_YOLOv8_TensorRT10实施方案.md) - 针对TensorRT 10的专项实施方案，强调FP16 Only和彻底去Darknet
+
+### GameController
+- [GameController_comparison.md](GameController/GameController_comparison.md) - GameController 数据结构版本差异与迁移要点
 
 ### 问题诊断与修复
-- [2026-03-23_Qt有画面但无检测框_原因解析.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_Qt有画面但无检测框_原因解析.md) - Qt有画面但无检测框问题的原因分析和验证步骤
-- [2026-03-23_x86_debuger_Qt黑屏原因分析与改进方案.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_x86_debuger_Qt黑屏原因分析与改进方案.md) - Qt黑屏问题的完整分析和改进方案
-- [2026-03-23_阶段A最小修复_ZED跳过去畸变实施记录.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_阶段A最小修复_ZED跳过去畸变实施记录.md) - ZED跳过去畸变的代码实施记录
-- [2026-03-23_ZED_Streaming与Qt调试方案完善日志.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_ZED_Streaming与Qt调试方案完善日志.md) - ZED Streaming与Qt调试方案的完善
-- [2026-03-24_视觉debug图与TensorRT输入一致性核查.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-24_视觉debug图与TensorRT输入一致性核查.md) - debug图像与推理图像关系及640x480匹配性核查
-- [2026-03-24_视觉推理letterbox对齐最小改造实施记录.md](file:///home/ydf/Robocup/7_26_V0/docs/2026-03-24_视觉推理letterbox对齐最小改造实施记录.md) - 视觉推理链路最小改造实施记录（letterbox+反算+clamp）
+- [2026-03-23_Qt有画面但无检测框_原因解析.md](Qt/2026-03-23_Qt有画面但无检测框_原因解析.md) - Qt有画面但无检测框问题的原因分析和验证步骤
+- [2026-03-23_x86_debuger_Qt黑屏原因分析与改进方案.md](Qt/2026-03-23_x86_debuger_Qt黑屏原因分析与改进方案.md) - Qt黑屏问题的完整分析和改进方案
+- [2026-03-23_阶段A最小修复_ZED跳过去畸变实施记录.md](Vision/2026-03-23_阶段A最小修复_ZED跳过去畸变实施记录.md) - ZED跳过去畸变的代码实施记录
+- [2026-03-23_ZED_Streaming与Qt调试方案完善日志.md](Qt/2026-03-23_ZED_Streaming与Qt调试方案完善日志.md) - ZED Streaming与Qt调试方案的完善
+- [2026-03-24_视觉debug图与TensorRT输入一致性核查.md](Vision/2026-03-24_视觉debug图与TensorRT输入一致性核查.md) - debug图像与推理图像关系及640x480匹配性核查
+- [2026-03-24_视觉推理letterbox对齐最小改造实施记录.md](Vision/2026-03-24_视觉推理letterbox对齐最小改造实施记录.md) - 视觉推理链路最小改造实施记录（letterbox+反算+clamp）
+- [2026-04-14_HD720采集_4比3中心裁剪_640x480下采样实施记录.md](Vision/2026-04-14_HD720采集_4比3中心裁剪_640x480下采样实施记录.md) - HD720采集与中心裁剪下采样改造记录
 
 ### 工具升级
-- [2026-03-23_auto_marker_trt10_upgrade_log.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_auto_marker_trt10_upgrade_log.md) - auto_marker工具升级到TensorRT 10的变更记录
+- [2026-03-23_auto_marker_trt10_upgrade_log.md](Tools/2026-03-23_auto_marker_trt10_upgrade_log.md) - auto_marker工具升级到TensorRT 10的变更记录
 
 ### 接入指南
-- [ZED-Mini单目接入快速指南.md](file:///home/seurobot2/Downloads/7_26_V0/docs/ZED-Mini单目接入快速指南.md) - ZED-Mini单目接入的快速指南
-- [2026-03-23_ZED-Mini单目接入代码改造日志.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_ZED-Mini单目接入代码改造日志.md) - ZED-Mini单目接入的代码改造日志
-- [2026-03-23_ZED-Mini单目接入指南_工作日志.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_ZED-Mini单目接入指南_工作日志.md) - ZED-Mini单目接入指南的工作日志
+- [ZED-Mini单目接入快速指南.md](Camera/ZED-Mini单目接入快速指南.md) - ZED-Mini单目接入的快速指南
+- [2026-03-23_ZED-Mini单目接入代码改造日志.md](Camera/2026-03-23_ZED-Mini单目接入代码改造日志.md) - ZED-Mini单目接入的代码改造日志
+- [2026-03-23_ZED-Mini单目接入指南_工作日志.md](Camera/2026-03-23_ZED-Mini单目接入指南_工作日志.md) - ZED-Mini单目接入指南的工作日志
 
 ### 逻辑检查与修正
-- [2026-03-23_视觉检测逻辑与类别ID一致性检查.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_视觉检测逻辑与类别ID一致性检查.md) - 视觉检测逻辑与类别ID的一致性检查
-- [2026-03-23_auto_marker类别映射修正与使用说明.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_auto_marker类别映射修正与使用说明.md) - auto_marker类别映射的修正与使用说明
-- [2026-03-23_auto_marker与Qt无框关联分析及代码补充.md](file:///home/seurobot2/Downloads/7_26_V0/docs/2026-03-23_auto_marker与Qt无框关联分析及代码补充.md) - auto_marker与Qt无框问题的关联分析
+- [2026-03-23_视觉检测逻辑与类别ID一致性检查.md](Vision/2026-03-23_视觉检测逻辑与类别ID一致性检查.md) - 视觉检测逻辑与类别ID的一致性检查
+- [2026-03-23_auto_marker类别映射修正与使用说明.md](Tools/2026-03-23_auto_marker类别映射修正与使用说明.md) - auto_marker类别映射的修正与使用说明
+- [2026-03-23_auto_marker与Qt无框关联分析及代码补充.md](Qt/2026-03-23_auto_marker与Qt无框关联分析及代码补充.md) - auto_marker与Qt无框问题的关联分析
 
 ---
 

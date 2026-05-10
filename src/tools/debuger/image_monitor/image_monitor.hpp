@@ -24,6 +24,8 @@ public slots:
 
 signals:
     void closed();
+    void imageReady(QImage img);
+    void ballInfoReady(float alpha, float beta, bool canSee);
 
 protected:
     void closeEvent(QCloseEvent *event);
