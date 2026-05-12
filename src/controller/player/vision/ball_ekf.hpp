@@ -43,7 +43,7 @@ private:
     float prev_roll_rate_;
 
     static constexpr float kSigmaBase = 0.002f;
-    static constexpr float kShakeScale = 1e-6f;
+    static constexpr float kShakeScale = 7e-7f;  // ZED Mini ~90° HFOV
     static constexpr float kQC = 0.005f;
     static constexpr float kGateThresh = 9.0f;
 };
