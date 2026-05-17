@@ -10,6 +10,7 @@
 #include "walk_remote/walk_remote.hpp"
 #include "joint_revise/joint_revise.hpp"
 #include "init_pos_editor/init_pos_editor.hpp"
+#include "field_monitor/field_monitor.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -62,6 +63,9 @@ Debuger::Debuger()
     rightLayout->addWidget(btnDebuger);
     btnDebuger = new QPushButton("Joint Revise");
     connect(btnDebuger, &QPushButton::clicked, this, &Debuger::procBtnJR);
+    rightLayout->addWidget(btnDebuger);
+    btnDebuger = new QPushButton("Field Monitor");
+    connect(btnDebuger, &QPushButton::clicked, this, &Debuger::procBtnFM);
     rightLayout->addWidget(btnDebuger);
 
     QHBoxLayout *btnLayout = new QHBoxLayout;
@@ -219,6 +223,15 @@ void Debuger::procBtnJR()
 {
     JointRevise *foo = new JointRevise();
     connect(foo, &JointRevise::closed, this, &Debuger::procClosed);
+    foo->show();
+    opened_debuger_count++;
+    pBox->setEnabled(false);
+}
+
+void Debuger::procBtnFM()
+{
+    FieldMonitor *foo = new FieldMonitor();
+    connect(foo, &FieldMonitor::closed, this, &Debuger::procClosed);
     foo->show();
     opened_debuger_count++;
     pBox->setEnabled(false);

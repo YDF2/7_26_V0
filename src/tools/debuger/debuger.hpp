@@ -25,6 +25,7 @@ public slots:
     void procBtnWR();
     void procBtnIPE();
     void procBtnJR();
+    void procBtnFM();
 private:
     void cacheBaseFonts();
     void applyScale(double scale);

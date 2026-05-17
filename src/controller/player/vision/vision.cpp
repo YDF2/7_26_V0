@@ -412,6 +412,37 @@ void Vision::run()
 
         if (OPTS->use_debug())
         {
+            // Send localization data (robot + ball on field)
+            if (OPTS->use_robot())
+            {
+                self_block self = WM->self();
+                ball_block ball = WM->ball();
+                tcp_command cmd;
+                cmd.type = REMOTE_DATA;
+                remote_data_type t1 = LOCALIZATION_DATA;
+                cmd.size = enum_size + 7 * float_size + bool_size;
+                float bx = static_cast<float>(ball.global.x());
+                float by = static_cast<float>(ball.global.y());
+                float bself_x = static_cast<float>(ball.self.x());
+                float bself_y = static_cast<float>(ball.self.y());
+                float sx = static_cast<float>(self.global.x());
+                float sy = static_cast<float>(self.global.y());
+                float sdir = static_cast<float>(self.dir);
+                cmd.data.clear();
+                cmd.data.append((char *)&t1, enum_size);
+                cmd.data.append((char *)&sx, float_size);
+                cmd.data.append((char *)&sy, float_size);
+                cmd.data.append((char *)&sdir, float_size);
+                cmd.data.append((char *)&bx, float_size);
+                cmd.data.append((char *)&by, float_size);
+                cmd.data.append((char *)&bself_x, float_size);
+                cmd.data.append((char *)&bself_y, float_size);
+                cmd.data.append((char *)&ball.can_see, bool_size);
+                LOG(LOG_INFO) << "LOC sent: self=(" << sx << "," << sy << ") dir=" << sdir
+                              << " ball=(" << bx << "," << by << ")" << endll;
+                SERVER->write(cmd);
+            }
+
             // Send alpha/beta to debugger when ball is visible
             {
                 tcp_command cmd;

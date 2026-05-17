@@ -44,6 +44,7 @@ enum remote_data_type
     JOINT_SET = 5,
     CAMERA_SET = 10,
     IMAGE_SEND_TYPE = 12,
+    LOCALIZATION_DATA = 13,
 };
 
 enum image_send_type
